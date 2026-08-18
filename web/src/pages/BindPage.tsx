@@ -6,19 +6,22 @@ import Header from '@/components/Header'
 import { Button, Card, Spinner } from '@/components/ui'
 import { Clover, CloverEmblem } from '@/components/Clover'
 import { api } from '@/lib/api'
-import { useMe } from '@/hooks/useMe'
+import { useMe, useSiteInfo } from '@/hooks/useMe'
 
 const steps = [
-  { icon: Terminal, title: '访问 new-api', desc: '打开站长提供的 new-api 站点' },
+  { icon: Terminal, title: '访问 new-api', desc: '打开 new-api 站点' },
   { icon: ExternalLink, title: 'LinuxDO 登录', desc: '使用同一个 LinuxDO 账号登录并注册' },
   { icon: RefreshCw, title: '回来重新检测', desc: '回到本页点「重新检测」完成绑定' },
 ]
 
 export default function BindPage() {
   const { data: me } = useMe()
+  const { data: site } = useSiteInfo()
   const qc = useQueryClient()
   const nav = useNavigate()
   const [msg, setMsg] = useState<string | null>(null)
+  // 站长未配置 NEWAPI_PUBLIC_URL 时不渲染跳转入口
+  const newapiUrl = site?.newapi_url?.trim()
 
   const rebind = useMutation({
     mutationFn: () => api.post<{ bound: boolean }>('/api/user/rebind'),
@@ -87,16 +90,26 @@ export default function BindPage() {
             <p className="mt-1 text-sm text-clover-700/75">叶子已经认得路了,回首页签到吧。</p>
           </Card>
         ) : (
-          <Button
-            variant="gradient"
-            size="lg"
-            className="mt-6 w-full"
-            disabled={rebind.isPending}
-            onClick={() => rebind.mutate()}
-          >
-            {rebind.isPending ? <Spinner size={20} /> : <RefreshCw size={18} />}
-            重新检测
-          </Button>
+          <div className="mt-6 space-y-3">
+            {newapiUrl && (
+              <a href={newapiUrl} target="_blank" rel="noreferrer" className="block">
+                <Button variant="gradient" size="lg" className="w-full">
+                  去 new-api 注册
+                  <ArrowRight size={18} />
+                </Button>
+              </a>
+            )}
+            <Button
+              variant={newapiUrl ? 'outline' : 'gradient'}
+              size="lg"
+              className="w-full"
+              disabled={rebind.isPending}
+              onClick={() => rebind.mutate()}
+            >
+              {rebind.isPending ? <Spinner size={20} /> : <RefreshCw size={18} />}
+              重新检测
+            </Button>
+          </div>
         )}
 
         {msg && (

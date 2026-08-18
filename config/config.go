@@ -14,6 +14,7 @@ type Config struct {
 	DBDriver         string // "mysql" (default) or "sqlite" (local dev only)
 	DBDSN            string
 	NewAPIBaseURL    string
+	NewAPIPublicURL  string // new-api 对外访问地址,可选,仅用于绑定引导页跳转
 	NewAPIAdminPAT   string
 	LinuxDOClientID  string
 	LinuxDOClientSec string
@@ -34,6 +35,7 @@ func Get() (*Config, error) {
 		DBDriver:         strEnv("DB_DRIVER", "mysql"),
 		DBDSN:            os.Getenv("DB_DSN"),
 		NewAPIBaseURL:    strings.TrimRight(os.Getenv("NEWAPI_BASE_URL"), "/"),
+		NewAPIPublicURL:  strings.TrimRight(os.Getenv("NEWAPI_PUBLIC_URL"), "/"),
 		NewAPIAdminPAT:   os.Getenv("NEWAPI_ADMIN_PAT"),
 		LinuxDOClientID:  os.Getenv("LINUXDO_CLIENT_ID"),
 		LinuxDOClientSec: os.Getenv("LINUXDO_CLIENT_SECRET"),

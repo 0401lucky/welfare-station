@@ -21,6 +21,7 @@ func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
 		common.Ok(c, gin.H{
 			"site_name":      cfg.WelfareSiteName,
 			"quota_per_unit": cfg.QuotaPerUnit,
+			"newapi_url":     cfg.NewAPIPublicURL, // 为空时前端不渲染跳转入口
 			"notice":         "", // notice is editable later via admin settings
 		})
 	})

@@ -47,6 +47,8 @@ export interface SiteInfo {
   site_name: string
   quota_per_unit: number
   notice: string
+  // new-api 对外地址,后端未配置 NEWAPI_PUBLIC_URL 时为空串
+  newapi_url?: string
 }
 
 export interface User {
