@@ -119,6 +119,17 @@ export interface AdminActivity {
   updated_at: string
 }
 
+// ActivityClaim 对应 GET /api/admin/activities/:id/claims 返回的原始 model.Claim 行:
+// 后端一次返回全量数组(按 id 倒序、不分页),不含用户名与发放状态(状态在发放流水 w_grants 里)。
+export interface ActivityClaim {
+  id: number
+  activity_id: number
+  user_id: number
+  quota: number
+  seq: number
+  created_at: string
+}
+
 export interface GrantRecord {
   id: number
   user_id: number

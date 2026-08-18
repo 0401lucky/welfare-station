@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CloverSpinner } from '@/components/Clover'
 
@@ -126,4 +127,79 @@ export function Table({ head, rows }: { head: React.ReactNode[]; rows: React.Rea
 
 export function Spinner({ className, size = 28 }: { className?: string; size?: number }) {
   return <CloverSpinner size={size} className={className} />
+}
+
+/**
+ * 二次确认弹窗:替代原生 confirm(),用于删除等破坏性操作。
+ * 受控组件,open 由调用方持有并就地渲染,不依赖全局挂载点。
+ * loading 期间遮罩点击、Esc、取消键均不生效,避免请求中途关掉弹窗。
+ */
+export function ConfirmDialog({
+  open,
+  title,
+  description,
+  confirmText = '确认',
+  cancelText = '取消',
+  loading = false,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean
+  title: string
+  description?: React.ReactNode
+  confirmText?: string
+  cancelText?: string
+  loading?: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  const dismiss = () => {
+    if (!loading) onCancel()
+  }
+
+  React.useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !loading) onCancel()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, loading, onCancel])
+
+  if (!open) return null
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-clover-900/40 p-4 backdrop-blur-sm"
+      onClick={dismiss}
+    >
+      <Card
+        role="alertdialog"
+        aria-modal
+        className="max-h-[88vh] w-full max-w-sm overflow-y-auto p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-red-100 bg-red-50 text-red-500">
+            <AlertTriangle size={17} />
+          </span>
+          <div className="min-w-0">
+            <h3 className="text-base font-bold text-clover-800">{title}</h3>
+            {description && (
+              <div className="mt-1.5 text-sm leading-relaxed text-clover-700/85">{description}</div>
+            )}
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button size="sm" variant="outline" disabled={loading} onClick={onCancel}>
+            {cancelText}
+          </Button>
+          <Button size="sm" variant="danger" disabled={loading} onClick={onConfirm}>
+            {loading && <Spinner size={16} />}
+            {confirmText}
+          </Button>
+        </div>
+      </Card>
+    </div>
+  )
 }

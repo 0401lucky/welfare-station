@@ -1,5 +1,6 @@
 import { ReactNode, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import {
   AlertTriangle, BarChart3, CheckCircle2, CircleDollarSign, Clock, FileText,
   Gift, LayoutDashboard, RefreshCw, Settings2, Sprout, Users, X,
@@ -7,8 +8,9 @@ import {
 import Header from '@/components/Header'
 import Quota from '@/components/Quota'
 import { Clover } from '@/components/Clover'
-import { Badge, Button, Card, Input, Progress, Select, Spinner, Table, Textarea } from '@/components/ui'
-import { api, AdminActivity, CheckinConfig, Dashboard, GrantRecord, Page, User } from '@/lib/api'
+import { Badge, Button, Card, ConfirmDialog, Input, Progress, Select, Spinner, Table, Textarea } from '@/components/ui'
+import { toast } from '@/components/Toast'
+import { api, ActivityClaim, AdminActivity, CheckinConfig, Dashboard, GrantRecord, Page, User } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -44,9 +46,41 @@ function Loading() {
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('dashboard')
-  const { data: me } = useMe()
+  const { data: me, isLoading: meLoading } = useMe()
 
-  if (me && !me.user.is_admin) {
+  // 三态守卫:加载中不渲染后台骨架,未登录与非管理员各给一张提示卡
+  if (meLoading) {
+    return (
+      <div className="relative min-h-screen">
+        <Header />
+        <Loading />
+      </div>
+    )
+  }
+
+  if (!me) {
+    return (
+      <div className="relative min-h-screen">
+        <Header />
+        <main className="relative z-10 mx-auto max-w-md px-4 py-20">
+          <Card className="flex flex-col items-center px-6 py-10 text-center">
+            <span className="animate-sway">
+              <Clover size={44} petal="#bce3c9" petalAlt="#dcf1e2" />
+            </span>
+            <h1 className="mt-4 font-kai text-2xl text-clover-800">请先登录</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              这片园子只对站长开放,右上角登录后再来。
+            </p>
+            <Link to="/" className="mt-5">
+              <Button variant="outline" size="sm">回首页</Button>
+            </Link>
+          </Card>
+        </main>
+      </div>
+    )
+  }
+
+  if (!me.user.is_admin) {
     return (
       <div className="relative min-h-screen">
         <Header />
@@ -194,8 +228,8 @@ function ConfigTab() {
 
   const save = useMutation({
     mutationFn: (c: CheckinConfig) => api.put('/api/admin/checkin-config', c),
-    onSuccess: () => { alert('已保存'); qc.invalidateQueries({ queryKey: ['admin-checkin-config'] }) },
-    onError: (e: Error) => alert(e.message),
+    onSuccess: () => { toast.success('签到配置已保存'); qc.invalidateQueries({ queryKey: ['admin-checkin-config'] }) },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   const localCfg = cfg ?? data
@@ -273,6 +307,8 @@ function ActivitiesTab() {
     queryFn: () => api.get<AdminActivity[]>('/api/admin/activities'),
   })
   const [editing, setEditing] = useState<Partial<AdminActivity> | null>(null)
+  const [deleting, setDeleting] = useState<AdminActivity | null>(null)
+  const [viewingClaims, setViewingClaims] = useState<AdminActivity | null>(null)
 
   const save = useMutation({
     mutationFn: async (a: Partial<AdminActivity>) => {
@@ -287,13 +323,14 @@ function ActivitiesTab() {
       if (a.id) await api.put(`/api/admin/activities/${a.id}`, body)
       else await api.post('/api/admin/activities', body)
     },
-    onSuccess: () => { setEditing(null); qc.invalidateQueries({ queryKey: ['admin-activities'] }); qc.invalidateQueries({ queryKey: ['activities'] }) },
-    onError: (e: Error) => alert(e.message),
+    onSuccess: (_, a) => { setEditing(null); toast.success(a.id ? '活动已更新' : '活动已创建'); qc.invalidateQueries({ queryKey: ['admin-activities'] }); qc.invalidateQueries({ queryKey: ['activities'] }) },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   const del = useMutation({
     mutationFn: (id: number) => api.del(`/api/admin/activities/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-activities'] }),
+    onSuccess: () => { setDeleting(null); toast.success('活动已删除'); qc.invalidateQueries({ queryKey: ['admin-activities'] }) },
+    onError: (e: Error) => { setDeleting(null); toast.error(e.message) },
   })
 
   return (
@@ -317,8 +354,9 @@ function ActivitiesTab() {
               <Badge key="s" className={a.status === 1 ? 'border border-clover-200 bg-clover-50 text-clover-700' : 'border border-clover-100 bg-muted text-muted-foreground'}>{a.status === 1 ? '上架' : '下架'}</Badge>,
               <span key="d" className="text-xs text-muted-foreground">{formatDateTime(a.start_at)} ~ {formatDateTime(a.end_at)}</span>,
               <span key="op" className="flex gap-1.5">
+                <Button size="sm" variant="outline" onClick={() => setViewingClaims(a)}>明细</Button>
                 <Button size="sm" variant="outline" onClick={() => setEditing(a as any)}>编辑</Button>
-                <Button size="sm" variant="danger" onClick={() => confirm('删除该活动?') && del.mutate(a.id)}>删除</Button>
+                <Button size="sm" variant="danger" onClick={() => setDeleting(a)}>删除</Button>
               </span>,
             ])}
           />
@@ -366,6 +404,69 @@ function ActivitiesTab() {
           </Card>
         </div>
       )}
+
+      <ClaimsDialog activity={viewingClaims} onClose={() => setViewingClaims(null)} />
+
+      <ConfirmDialog
+        open={!!deleting}
+        title="删除活动"
+        description={<>确定删除活动「{deleting?.title}」吗?活动记录将被彻底移除且无法恢复,已发放到账的额度不会退回。</>}
+        confirmText="删除"
+        loading={del.isPending}
+        onConfirm={() => deleting && del.mutate(deleting.id)}
+        onCancel={() => setDeleting(null)}
+      />
+    </div>
+  )
+}
+
+/**
+ * 活动领取明细弹窗:后端 GET /api/admin/activities/:id/claims 一次返回全量数组(不分页),
+ * 因此这里只给「共 N 条」提示 + 弹窗内滚动,不做翻页。
+ * activity 为 null 时视为弹窗关闭,查询不发起。
+ */
+function ClaimsDialog({ activity, onClose }: { activity: AdminActivity | null; onClose: () => void }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['admin-activity-claims', activity?.id],
+    queryFn: () => api.get<ActivityClaim[]>(`/api/admin/activities/${activity!.id}/claims`),
+    enabled: !!activity?.id,
+  })
+
+  if (!activity) return null
+  const claims = data ?? []
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-clover-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
+      <Card className="max-h-[88vh] w-full max-w-2xl overflow-y-auto p-5 sm:p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-lg font-bold text-clover-800">领取明细</h3>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {activity.title} · 已领 {activity.claimed_count}/{activity.total_count} 份
+            </p>
+          </div>
+          <button className="shrink-0 rounded-full p-1 text-clover-700/60 transition-colors hover:bg-clover-50 hover:text-clover-800" onClick={onClose}><X size={18} /></button>
+        </div>
+        {isLoading ? <Loading /> : isError ? (
+          <p className="py-12 text-center text-sm text-red-500">读取领取明细失败,请稍后重试</p>
+        ) : claims.length === 0 ? (
+          <p className="py-12 text-center text-sm text-muted-foreground">还没有人领取这个活动</p>
+        ) : (
+          <>
+            <p className="mb-2 text-xs text-muted-foreground">共 {claims.length} 条</p>
+            <Table
+              head={['ID', '福利站用户', '额度', '第几次', '领取时间']}
+              rows={claims.map((c) => [
+                <span key="i" className="text-muted-foreground">{c.id}</span>,
+                <span key="u" className="text-clover-800">#{c.user_id}</span>,
+                <Quota key="q" value={c.quota} raw />,
+                <span key="s" className="text-xs text-muted-foreground">第 {c.seq} 次</span>,
+                <span key="d" className="text-xs text-muted-foreground">{formatDateTime(c.created_at)}</span>,
+              ])}
+            />
+          </>
+        )}
+      </Card>
     </div>
   )
 }
@@ -391,8 +492,12 @@ function GrantsTab() {
 
   const retry = useMutation({
     mutationFn: (id: number) => api.post<GrantRecord>(`/api/admin/grants/${id}/retry`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-grants'] }),
-    onError: (e: Error) => alert(e.message),
+    onSuccess: (g) => {
+      if (g.status === 'success') toast.success('重试成功,额度已发放')
+      else toast.error(`重试后状态:${grantStatusText(g.status)}${g.error ? ' · ' + g.error : ''}`)
+      qc.invalidateQueries({ queryKey: ['admin-grants'] })
+    },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   return (
@@ -453,6 +558,7 @@ function UsersTab() {
   const toggle = useMutation({
     mutationFn: ({ id, status }: { id: number; status: number }) => api.put(`/api/admin/users/${id}/status`, { status }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
+    onError: (e: Error) => toast.error(e.message),
   })
 
   return (
@@ -499,12 +605,13 @@ function ManualTab() {
       return api.post('/api/admin/grants/manual', body)
     },
     onSuccess: (r: any) => {
-      alert(`发放完成,状态: ${r.status}`)
+      if (r?.status === 'success') toast.success('发放完成,额度已到账')
+      else toast.error(`发放未完成,状态:${grantStatusText(r?.status)}`)
       setNewapiId(''); setUserId(''); setQuota('')
       qc.invalidateQueries({ queryKey: ['admin-grants'] })
       qc.invalidateQueries({ queryKey: ['admin-dashboard'] })
     },
-    onError: (e: Error) => alert(e.message),
+    onError: (e: Error) => toast.error(e.message),
   })
 
   return (

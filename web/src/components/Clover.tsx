@@ -63,38 +63,22 @@ export function CloverEmblem({ size = 120, className }: { size?: number; classNa
   )
 }
 
-/** 加载指示:旋转的四叶草(转运中…) */
+/**
+ * 加载指示:旋转的四叶草(转运中…)。
+ * 花瓣取 currentColor:放进白字按钮(gradient/danger)自动变白,
+ * 普通语境跟随正文墨绿,调用方无需传色。
+ */
 export function CloverSpinner({ size = 28, className }: { size?: number; className?: string }) {
   return (
     <span className={cn('inline-flex', className)}>
-      <Clover size={size} stem={false} className="animate-[spin-slow_1.6s_linear_infinite]" />
+      <Clover
+        size={size}
+        stem={false}
+        petal="currentColor"
+        petalAlt="currentColor"
+        className="animate-[spin-slow_1.6s_linear_infinite]"
+      />
     </span>
-  )
-}
-
-/** 固定背景层:几片漂浮的半透明四叶草 */
-const floaters = [
-  { top: '12%', left: '5%', size: 34, delay: '0s', opacity: 0.5 },
-  { top: '30%', left: '92%', size: 46, delay: '1.4s', opacity: 0.45 },
-  { top: '64%', left: '8%', size: 26, delay: '2.6s', opacity: 0.4 },
-  { top: '78%', left: '88%', size: 30, delay: '0.8s', opacity: 0.42 },
-  { top: '8%', left: '72%', size: 22, delay: '3.4s', opacity: 0.38 },
-  { top: '46%', left: '96%', size: 20, delay: '2s', opacity: 0.32 },
-]
-
-export function FloatingClovers() {
-  return (
-    <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden>
-      {floaters.map((f, i) => (
-        <span
-          key={i}
-          className="absolute animate-float-leaf"
-          style={{ top: f.top, left: f.left, opacity: f.opacity, animationDelay: f.delay }}
-        >
-          <Clover size={f.size} stem={false} petal="#8fd6a8" petalAlt="#bce3c9" />
-        </span>
-      ))}
-    </div>
   )
 }
 
