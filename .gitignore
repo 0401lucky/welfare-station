@@ -1,0 +1,28 @@
+# Go
+*.exe
+*.test
+*.out
+welfare
+
+# Frontend
+web/node_modules/
+web/dist/*
+!web/dist/.gitkeep
+
+# Local dev database
+*.db
+*.db-shm
+*.db-wal
+
+# Env / secrets
+.env
+.env.local
+
+# AI 工具链与个人工作区(不入公开仓)
+.agents/
+.claude/
+.codex/
+.dsh/
+.pi/
+.trellis/
+AGENTS.md

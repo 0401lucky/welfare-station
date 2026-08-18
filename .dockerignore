@@ -1,0 +1,11 @@
+.git
+.trellis
+.agents
+.claude
+.codex
+.dsh
+.pi
+web/node_modules
+web/dist
+*.db
+.env

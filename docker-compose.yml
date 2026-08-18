@@ -1,0 +1,42 @@
+# 福利站 single-container compose.
+#
+# - The welfare-station container talks to an EXISTING MySQL instance and an
+#   EXISTING new-api instance over HTTP — neither is defined here (design.md §5).
+# - NEWAPI_BASE_URL / DB_DSN must point at reachable hosts. If the new-api
+#   compose stack already created a Docker network, uncomment the `networks`
+#   block and use NEWAPI_BASE_URL=http://new-api:3000.
+#
+# Example .env.production (see .env.example for the full commented list):
+#   DB_DRIVER=mysql
+#   DB_DSN=user:pass@tcp(mysql:3306)/welfare_station?charset=utf8mb4&parseTime=True&loc=Local
+#   NEWAPI_BASE_URL=http://host.docker.internal:3000
+#   NEWAPI_ADMIN_PAT=<welfare-bot PAT>
+#   LINUXDO_CLIENT_ID=...
+#   LINUXDO_CLIENT_SECRET=...
+#   WELFARE_BASE_URL=https://welfare.example.com
+#   WELFARE_JWT_SECRET=<random 32+ bytes>
+#   WELFARE_ADMIN_LINUXDO_IDS=12345,67890
+#   QUOTA_PER_UNIT=500000
+#   MAX_GRANT_QUOTA=5000000
+
+services:
+  welfare:
+    build: .
+    image: welfare:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    # If new-api runs in its own compose network, attach to it directly:
+    # networks:
+    #   - new-api-network
+    # Alternatively, with Docker Desktop use NEWAPI_BASE_URL=http://host.docker.internal:3000
+    # and add:
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+
+# networks:
+#   new-api-network:
+#     external: true
+#     name: <the actual new-api compose network name>

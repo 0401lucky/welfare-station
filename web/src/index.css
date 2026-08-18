@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply text-foreground font-sans antialiased;
+    /* 参考图:左上薄荷绿 → 中部奶白 → 右侧暖奶油黄 的柔和渐变 */
+    background:
+      radial-gradient(1100px 640px at 8% -4%, rgba(143, 214, 168, 0.5), transparent 60%),
+      radial-gradient(900px 560px at 96% 4%, rgba(238, 217, 164, 0.5), transparent 58%),
+      radial-gradient(760px 640px at 88% 88%, rgba(188, 227, 201, 0.35), transparent 60%),
+      linear-gradient(160deg, #eef7ee 0%, #f4f8ec 46%, #f8f4e4 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+
+  ::selection {
+    background: rgba(91, 188, 130, 0.35);
+  }
+}
+
+@layer utilities {
+  /* 玻璃顶栏 / 玻璃卡 */
+  .glass {
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid rgba(188, 227, 201, 0.55);
+  }
+
+  /* 书法标题:墨绿 */
+  .title-kai {
+    @apply font-kai text-clover-800;
+    letter-spacing: 0.06em;
+  }
+
+  /* 金色拉丁强调词(参考图 "lucky") */
+  .word-gold {
+    background-image: linear-gradient(120deg, #ddb45f 10%, #c9963a 55%, #eed9a4 90%);
+    @apply bg-clip-text text-transparent;
+  }
+
+  .text-clover-gradient {
+    background-image: linear-gradient(120deg, #268552, #5bbc82);
+    @apply bg-clip-text text-transparent;
+  }
+
+  /* 虚线圆环(主视觉 logo 外圈) */
+  .ring-dashed {
+    border: 2px dashed rgba(53, 164, 101, 0.5);
+  }
+
+  .card-leaf {
+    @apply rounded-3xl border border-clover-100 bg-white/85 shadow-card backdrop-blur-sm;
+  }
+
+  /* 页面载入的分级淡入 */
+  .stagger > * {
+    animation: fade-up 0.55s ease-out both;
+  }
+  .stagger > *:nth-child(1) { animation-delay: 0.02s; }
+  .stagger > *:nth-child(2) { animation-delay: 0.1s; }
+  .stagger > *:nth-child(3) { animation-delay: 0.18s; }
+  .stagger > *:nth-child(4) { animation-delay: 0.26s; }
+  .stagger > *:nth-child(5) { animation-delay: 0.34s; }
+  .stagger > *:nth-child(6) { animation-delay: 0.42s; }
+}
