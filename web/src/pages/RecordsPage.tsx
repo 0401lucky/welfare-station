@@ -101,7 +101,7 @@ export default function RecordsPage() {
                       </p>
                     </div>
                     <span className="word-gold shrink-0 font-kai text-lg">
-                      <Quota value={g.quota} raw />
+                      <Quota value={g.quota} />
                     </span>
                   </div>
                 )

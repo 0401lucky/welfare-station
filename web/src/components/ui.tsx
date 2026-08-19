@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { quotaToUSD, usdToQuota } from '@/lib/format'
 import { CloverSpinner } from '@/components/Clover'
 
 export function Button({
@@ -67,6 +68,73 @@ export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInp
       )}
       {...props}
     />
+  )
+}
+
+/**
+ * 美元额度输入框:界面上填美元,对外仍以 quota 整数进出(后端契约不变)。
+ *
+ * 两个关键取舍:
+ * 1. 用内部字符串 state 承接键入,只有外部 value / perUnit 真正变化时(数据加载完成、
+ *    表单重置、换算系数到位)才回写,否则输到「0.」这类中间态会被反算成「0」打断。
+ * 2. 不用 type="number":浏览器对「0.」「1.」等中间态会把 e.target.value 返回空串,
+ *    与需求 1 冲突;改用 inputMode="decimal" 弹数字键盘,合法性自己判。
+ */
+export function MoneyInput({
+  value,
+  onChange,
+  perUnit,
+  className,
+  ...props
+}: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type'> & {
+  value?: number
+  onChange: (quota: number) => void
+  perUnit: number
+}) {
+  // 0 显示为空:金额场景里 0 与「未填」等价,表单重置后不该留个孤零零的 0
+  const toText = (q?: number) =>
+    !q || !isFinite(q) ? '' : String(Number(quotaToUSD(q, perUnit).toFixed(6)))
+
+  const [text, setText] = React.useState(() => toText(value))
+  const emitted = React.useRef(value)
+  const lastPerUnit = React.useRef(perUnit)
+
+  React.useEffect(() => {
+    if (value === emitted.current && perUnit === lastPerUnit.current) return
+    emitted.current = value
+    lastPerUnit.current = perUnit
+    setText(toText(value))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, perUnit])
+
+  const handle = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const s = e.target.value
+    setText(s)
+    if (s.trim() === '') {
+      emitted.current = 0
+      onChange(0)
+      return
+    }
+    const n = Number(s)
+    if (!isFinite(n) || n < 0) return // 非法输入只留在框里,不往外抛
+    const q = usdToQuota(n, perUnit)
+    emitted.current = q
+    onChange(q)
+  }
+
+  return (
+    <div className="relative">
+      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+        $
+      </span>
+      <Input
+        {...props}
+        inputMode="decimal"
+        value={text}
+        onChange={handle}
+        className={cn('pl-7', className)}
+      />
+    </div>
   )
 }
 

@@ -7,6 +7,12 @@ export function formatUSD(quota: number, perUnit = 500000): string {
   return '$' + quotaToUSD(quota, perUnit).toFixed(2)
 }
 
+/** 美元 → quota 整数。后端契约只收整数,这里统一四舍五入兜底。 */
+export function usdToQuota(usd: number, perUnit = 500000): number {
+  if (!isFinite(usd) || !perUnit || perUnit <= 0) return 0
+  return Math.round(usd * perUnit)
+}
+
 export function formatQuota(n: number): string {
   return n.toLocaleString('en-US')
 }

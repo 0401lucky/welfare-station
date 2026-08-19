@@ -127,6 +127,8 @@ function CheckinCard({
   onChecked: (r: CheckinResult) => void
 }) {
   const qc = useQueryClient()
+  const { data: site } = useSiteInfo()
+  const perUnit = site?.quota_per_unit
   const checkinMut = useMutation({
     mutationFn: () => api.post<CheckinResult>('/api/checkin'),
     onSuccess: (r) => {
@@ -150,8 +152,8 @@ function CheckinCard({
           <p className="text-sm text-muted-foreground">每日签到 · 今日奖励</p>
           <h2 className="mt-1 text-xl font-bold text-clover-800">
             {rules?.mode === 'random'
-              ? <>随机 {formatUSD(rules.min_quota)} ~ {formatUSD(rules.max_quota)}</>
-              : <Quota value={rules?.fixed_quota} raw />}
+              ? <>随机 {formatUSD(rules.min_quota, perUnit)} ~ {formatUSD(rules.max_quota, perUnit)}</>
+              : <Quota value={rules?.fixed_quota} />}
           </h2>
         </div>
         <div
@@ -321,7 +323,7 @@ export default function HomePage() {
       qc.invalidateQueries({ queryKey: ['activities'] })
       qc.invalidateQueries({ queryKey: ['me'] })
       setRainSeed(Math.random())
-      toast.success(`摘到了!${formatUSD(r.quota)} 已直充到账`)
+      toast.success(`摘到了!${formatUSD(r.quota, site?.quota_per_unit)} 已直充到账`)
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -386,7 +388,7 @@ export default function HomePage() {
                   className="mx-auto mb-6 max-w-md rounded-3xl border border-gold-300 bg-cream/90 p-5 text-center shadow-leaf"
                 >
                   <div className="word-gold font-kai text-4xl">
-                    {flash.ok ? `+${formatUSD(flash.quota)}` : '额度排队中'}
+                    {flash.ok ? `+${formatUSD(flash.quota, site?.quota_per_unit)}` : '额度排队中'}
                   </div>
                   <div className="mt-1 text-xs text-clover-700/80">
                     {flash.ok

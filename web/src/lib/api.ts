@@ -49,6 +49,8 @@ export interface SiteInfo {
   notice: string
   // new-api 对外地址,后端未配置 NEWAPI_PUBLIC_URL 时为空串
   newapi_url?: string
+  // 单次发放上限(quota 整数),仅用于前端提示,真正校验在后端
+  max_grant_quota?: number
 }
 
 export interface User {

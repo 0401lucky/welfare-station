@@ -21,6 +21,8 @@ func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
 		common.Ok(c, gin.H{
 			"site_name":      cfg.WelfareSiteName,
 			"quota_per_unit": cfg.QuotaPerUnit,
+			// 只读:供前端把「单次发放上限」换算成美元提示,校验仍以后端为准
+			"max_grant_quota": cfg.MaxGrantQuota,
 			"newapi_url":     cfg.NewAPIPublicURL, // 为空时前端不渲染跳转入口
 			"notice":         "", // notice is editable later via admin settings
 		})

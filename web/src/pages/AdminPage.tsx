@@ -8,11 +8,11 @@ import {
 import Header from '@/components/Header'
 import Quota from '@/components/Quota'
 import { Clover } from '@/components/Clover'
-import { Badge, Button, Card, ConfirmDialog, Input, Progress, Select, Spinner, Table, Textarea } from '@/components/ui'
+import { Badge, Button, Card, ConfirmDialog, Input, MoneyInput, Progress, Select, Spinner, Table, Textarea } from '@/components/ui'
 import { toast } from '@/components/Toast'
 import { api, ActivityClaim, AdminActivity, CheckinConfig, Dashboard, GrantRecord, Page, User } from '@/lib/api'
-import { useMe } from '@/hooks/useMe'
-import { formatDateTime } from '@/lib/format'
+import { useMe, useSiteInfo } from '@/hooks/useMe'
+import { formatDateTime, formatUSD } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 type Tab = 'dashboard' | 'config' | 'activities' | 'grants' | 'users' | 'manual'
@@ -42,6 +42,12 @@ function Loading() {
       <Spinner size={34} />
     </div>
   )
+}
+
+/** 换算系数统一取自 /api/site/info;站点信息未到位前用默认值兜底,到位后组件会自动重算。 */
+function usePerUnit() {
+  const { data: site } = useSiteInfo()
+  return site?.quota_per_unit ?? 500000
 }
 
 export default function AdminPage() {
@@ -178,7 +184,7 @@ function DashboardTab() {
     { label: '累计发放', value: data?.total_grants ?? 0, icon: FileText, tone: 'clover' },
     {
       label: '累计额度',
-      value: <Quota value={data?.total_quota} raw />,
+      value: <Quota value={data?.total_quota} />,
       icon: CircleDollarSign,
       tone: 'gold',
       gold: true,
@@ -220,6 +226,7 @@ function DashboardTab() {
 
 function ConfigTab() {
   const qc = useQueryClient()
+  const perUnit = usePerUnit()
   const { data, isLoading } = useQuery({
     queryKey: ['admin-checkin-config'],
     queryFn: () => api.get<CheckinConfig>('/api/admin/checkin-config'),
@@ -262,16 +269,16 @@ function ConfigTab() {
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <div>
-            <label className="mb-1 block text-xs text-muted-foreground">固定额度 (quota)</label>
-            <Input type="number" value={localCfg?.fixed_quota} onChange={(e) => set({ fixed_quota: +e.target.value })} />
+            <label className="mb-1 block text-xs text-muted-foreground">固定额度($)</label>
+            <MoneyInput perUnit={perUnit} value={localCfg?.fixed_quota} onChange={(q) => set({ fixed_quota: q })} />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-muted-foreground">随机最小值</label>
-            <Input type="number" value={localCfg?.min_quota} onChange={(e) => set({ min_quota: +e.target.value })} />
+            <label className="mb-1 block text-xs text-muted-foreground">随机最小值($)</label>
+            <MoneyInput perUnit={perUnit} value={localCfg?.min_quota} onChange={(q) => set({ min_quota: q })} />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-muted-foreground">随机最大值</label>
-            <Input type="number" value={localCfg?.max_quota} onChange={(e) => set({ max_quota: +e.target.value })} />
+            <label className="mb-1 block text-xs text-muted-foreground">随机最大值($)</label>
+            <MoneyInput perUnit={perUnit} value={localCfg?.max_quota} onChange={(q) => set({ max_quota: q })} />
           </div>
         </div>
         <div>
@@ -288,20 +295,23 @@ function ConfigTab() {
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs text-muted-foreground">全局最低信任等级</label>
-          <Input type="number" value={localCfg?.min_trust_level} onChange={(e) => set({ min_trust_level: +e.target.value })} />
+          <label className="mb-1 block text-xs text-muted-foreground">全局最低信任等级(0-4)</label>
+          <Input type="number" min={0} max={4} value={localCfg?.min_trust_level} onChange={(e) => set({ min_trust_level: +e.target.value })} />
         </div>
         <Button variant="gradient" disabled={!localCfg || save.isPending} onClick={() => localCfg && save.mutate(localCfg)}>
           {save.isPending ? <Spinner size={18} /> : '保存配置'}
         </Button>
       </Card>
-      <p className="text-xs text-muted-foreground">QuotaPerUnit 与 new-api 实例保持一致(设计文档要求)。</p>
+      <p className="text-xs text-muted-foreground">
+        额度按 $1 = {perUnit.toLocaleString('en-US')} quota 换算,该系数须与 new-api 实例保持一致(设计文档要求)。
+      </p>
     </div>
   )
 }
 
 function ActivitiesTab() {
   const qc = useQueryClient()
+  const perUnit = usePerUnit()
   const { data, isLoading } = useQuery({
     queryKey: ['admin-activities'],
     queryFn: () => api.get<AdminActivity[]>('/api/admin/activities'),
@@ -346,7 +356,7 @@ function ActivitiesTab() {
             rows={(data ?? []).map((a) => [
               <span key="i" className="text-muted-foreground">{a.id}</span>,
               <span key="t" className="font-medium text-clover-800">{a.title}</span>,
-              <Quota key="q" value={a.quota} raw />,
+              <Quota key="q" value={a.quota} />,
               <div key="p" className="flex w-32 items-center gap-2">
                 <Progress value={a.claimed_count / a.total_count} className="flex-1" />
                 <span className="shrink-0 text-xs text-muted-foreground">{a.claimed_count}/{a.total_count}</span>
@@ -374,12 +384,24 @@ function ActivitiesTab() {
               <Input placeholder="标题" value={editing.title ?? ''} onChange={(e) => setEditing({ ...editing, title: e.target.value })} />
               <Textarea placeholder="说明(支持换行/markdown)" rows={4} value={editing.description ?? ''} onChange={(e) => setEditing({ ...editing, description: e.target.value })} />
               <div className="grid grid-cols-2 gap-3">
-                <Input type="number" placeholder="面值 quota" value={String(editing.quota ?? '')} onChange={(e) => setEditing({ ...editing, quota: +e.target.value })} />
-                <Input type="number" placeholder="总份数" value={String(editing.total_count ?? '')} onChange={(e) => setEditing({ ...editing, total_count: +e.target.value })} />
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">面值($)</label>
+                  <MoneyInput perUnit={perUnit} value={editing.quota} onChange={(q) => setEditing({ ...editing, quota: q })} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">总份数</label>
+                  <Input type="number" value={String(editing.total_count ?? '')} onChange={(e) => setEditing({ ...editing, total_count: +e.target.value })} />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <Input type="number" placeholder="每人限领(默认1)" value={String(editing.per_user_limit ?? 1)} onChange={(e) => setEditing({ ...editing, per_user_limit: +e.target.value })} />
-                <Input type="number" placeholder="最低信任等级(默认0)" value={String(editing.min_trust_level ?? 0)} onChange={(e) => setEditing({ ...editing, min_trust_level: +e.target.value })} />
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">每人限领(默认 1)</label>
+                  <Input type="number" value={String(editing.per_user_limit ?? 1)} onChange={(e) => setEditing({ ...editing, per_user_limit: +e.target.value })} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">最低信任等级(0-4,默认 0)</label>
+                  <Input type="number" min={0} max={4} value={String(editing.min_trust_level ?? 0)} onChange={(e) => setEditing({ ...editing, min_trust_level: +e.target.value })} />
+                </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
@@ -459,7 +481,7 @@ function ClaimsDialog({ activity, onClose }: { activity: AdminActivity | null; o
               rows={claims.map((c) => [
                 <span key="i" className="text-muted-foreground">{c.id}</span>,
                 <span key="u" className="text-clover-800">#{c.user_id}</span>,
-                <Quota key="q" value={c.quota} raw />,
+                <Quota key="q" value={c.quota} />,
                 <span key="s" className="text-xs text-muted-foreground">第 {c.seq} 次</span>,
                 <span key="d" className="text-xs text-muted-foreground">{formatDateTime(c.created_at)}</span>,
               ])}
@@ -514,11 +536,11 @@ function GrantsTab() {
       {isLoading ? <Loading /> : (
         <Card className="p-3 sm:p-4">
           <Table
-            head={['ID', '类型', 'quota', '状态', '错误', '时间', '操作']}
+            head={['ID', '类型', '额度', '状态', '错误', '时间', '操作']}
             rows={(data?.items ?? []).map((g) => [
               <span key="i" className="text-muted-foreground">{g.id}</span>,
               <span key="t" className="text-clover-800">{typeZh(g.type)} #{g.ref_id}</span>,
-              <Quota key="q" value={g.quota} raw />,
+              <Quota key="q" value={g.quota} />,
               <Badge key="s" className={grantStatusCls(g.status)}>{grantStatusText(g.status)}</Badge>,
               <span key="e" className="block max-w-[12rem] truncate text-xs text-muted-foreground" title={g.error}>{g.error || '-'}</span>,
               <span key="d" className="text-xs text-muted-foreground">{formatDateTime(g.created_at)}</span>,
@@ -593,13 +615,18 @@ function UsersTab() {
 
 function ManualTab() {
   const qc = useQueryClient()
+  const { data: site } = useSiteInfo()
+  const perUnit = site?.quota_per_unit ?? 500000
+  const maxQuota = site?.max_grant_quota
   const [newapiId, setNewapiId] = useState('')
   const [userId, setUserId] = useState('')
-  const [quota, setQuota] = useState('')
+  const [quota, setQuota] = useState(0)
+
+  const overLimit = !!maxQuota && quota > maxQuota
 
   const submit = useMutation({
     mutationFn: () => {
-      const body: any = { quota: +quota }
+      const body: any = { quota }
       if (newapiId) body.newapi_user_id = +newapiId
       if (userId) body.user_id = +userId
       return api.post('/api/admin/grants/manual', body)
@@ -607,7 +634,7 @@ function ManualTab() {
     onSuccess: (r: any) => {
       if (r?.status === 'success') toast.success('发放完成,额度已到账')
       else toast.error(`发放未完成,状态:${grantStatusText(r?.status)}`)
-      setNewapiId(''); setUserId(''); setQuota('')
+      setNewapiId(''); setUserId(''); setQuota(0)
       qc.invalidateQueries({ queryKey: ['admin-grants'] })
       qc.invalidateQueries({ queryKey: ['admin-dashboard'] })
     },
@@ -629,10 +656,15 @@ function ManualTab() {
           </div>
         </div>
         <div>
-          <label className="mb-1 block text-xs text-muted-foreground">额度 quota (上限 5000000)</label>
-          <Input type="number" value={quota} onChange={(e) => setQuota(e.target.value)} />
+          <label className="mb-1 block text-xs text-muted-foreground">
+            额度(${maxQuota ? `,上限 ${formatUSD(maxQuota, perUnit)}` : ''})
+          </label>
+          <MoneyInput perUnit={perUnit} value={quota} onChange={setQuota} />
+          {overLimit && (
+            <p className="mt-1 text-xs text-red-500">超过单次发放上限,后端会拒绝</p>
+          )}
         </div>
-        <Button variant="gradient" disabled={!quota || submit.isPending} onClick={() => submit.mutate()}>
+        <Button variant="gradient" disabled={!quota || overLimit || submit.isPending} onClick={() => submit.mutate()}>
           {submit.isPending ? <Spinner size={18} /> : <CheckCircle2 size={16} />} 发放
         </Button>
       </Card>
