@@ -10,7 +10,7 @@ import { Clover, CloverEmblem, CloverRain } from '@/components/Clover'
 import { toast } from '@/components/Toast'
 import { api, Activity, CheckinResult, ClaimResult, SelfInfo, CheckinView } from '@/lib/api'
 import { useMe, useSiteInfo } from '@/hooks/useMe'
-import { formatUSD, timeAgo } from '@/lib/format'
+import { formatExpireIn, formatUSD, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 /* ---------- 签到日历(以后端配置时区的 today 为基准,避免浏览器时区错位) ---------- */
@@ -121,9 +121,11 @@ function Hero({ me }: { me?: SelfInfo | null }) {
 /* ---------- 签到卡 ---------- */
 function CheckinCard({
   view,
+  me,
   onChecked,
 }: {
   view?: CheckinView
+  me?: SelfInfo | null
   onChecked: (r: CheckinResult) => void
 }) {
   const qc = useQueryClient()
@@ -144,6 +146,7 @@ function CheckinCard({
 
   const rules = view?.rules
   const checked = view?.checked_today
+  const temporary = rules?.reward_type === 'temporary'
 
   return (
     <Card className="p-6">
@@ -155,6 +158,11 @@ function CheckinCard({
               ? <>随机 {formatUSD(rules.min_quota, perUnit)} ~ {formatUSD(rules.max_quota, perUnit)}</>
               : <Quota value={rules?.fixed_quota} />}
           </h2>
+          {temporary && (
+            <p className="mt-1.5 flex items-center gap-1 text-xs text-gold-600">
+              <Timer size={12} /> 限时 · 今日有效,不增加永久余额,次日 00:00 失效
+            </p>
+          )}
         </div>
         <div
           className="flex items-center gap-1.5 rounded-full border border-gold-300 bg-cream px-3 py-1 text-gold-600"
@@ -183,6 +191,18 @@ function CheckinCard({
         )}
         {checked ? '今天的叶子已经摘过啦' : '摘一片四叶草 · 签到'}
       </Button>
+
+      {!!me?.newapi_temp_balance && me.newapi_temp_balance > 0 && (
+        <div className="mt-4 flex items-center justify-between gap-2 rounded-2xl border border-gold-400 bg-gold-300/30 px-4 py-2.5 text-sm text-gold-600">
+          <span className="flex items-center gap-1.5">
+            <Timer size={14} /> 限时额度余额
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="font-kai text-lg"><Quota value={me.newapi_temp_balance} /></span>
+            <span className="text-xs">· {formatExpireIn(me.newapi_temp_expires_at)}</span>
+          </span>
+        </div>
+      )}
 
       {rules && (
         <div className="mt-4 flex flex-wrap gap-1.5">
@@ -302,7 +322,7 @@ export default function HomePage() {
   const { data: me, isLoading: meLoading } = useMe()
   const { data: site } = useSiteInfo()
   const qc = useQueryClient()
-  const [flash, setFlash] = useState<{ quota: number; streak: number; ok: boolean } | null>(null)
+  const [flash, setFlash] = useState<{ quota: number; streak: number; ok: boolean; temporary: boolean } | null>(null)
   const [rainSeed, setRainSeed] = useState(0)
 
   const checkinView = useQuery({
@@ -332,7 +352,7 @@ export default function HomePage() {
   const onChecked = useMemo(
     () => (r: CheckinResult) => {
       const ok = r.grant_status === 'success'
-      setFlash({ quota: r.quota, streak: r.streak, ok })
+      setFlash({ quota: r.quota, streak: r.streak, ok, temporary: r.quota_type === 'temporary' })
       if (ok) setRainSeed(Math.random())
       setTimeout(() => setFlash(null), 4000)
     },
@@ -392,7 +412,7 @@ export default function HomePage() {
                   </div>
                   <div className="mt-1 text-xs text-clover-700/80">
                     {flash.ok
-                      ? `连续签到 ${flash.streak} 天,好运 +1`
+                      ? `连续签到 ${flash.streak} 天,好运 +1${flash.temporary ? ' · 限时额度今日有效' : ''}`
                       : '签到已记录,额度稍后由站长补发'}
                   </div>
                 </motion.div>
@@ -400,7 +420,7 @@ export default function HomePage() {
             </AnimatePresence>
 
             <div className="stagger grid items-start gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-              <CheckinCard view={checkinView.data} onChecked={onChecked} />
+              <CheckinCard view={checkinView.data} me={me} onChecked={onChecked} />
               <div className="space-y-6">
                 <LuckyIndexCard />
                 <Card className="p-6">

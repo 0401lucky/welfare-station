@@ -17,9 +17,12 @@ type StreakBonus struct {
 }
 
 type CheckinConfig struct {
-	Enabled       bool          `json:"enabled"`
-	Timezone      string        `json:"timezone"`
-	Mode          string        `json:"mode"` // "fixed" | "random"
+	Enabled  bool   `json:"enabled"`
+	Timezone string `json:"timezone"`
+	Mode     string `json:"mode"` // "fixed" | "random"
+	// RewardType 奖励类型:"permanent"(永久余额,默认)/ "temporary"(今日限时额度)。
+	// 存量配置没有这个字段,读取时按 permanent 兜底。
+	RewardType    string        `json:"reward_type"`
 	FixedQuota    int64         `json:"fixed_quota"`
 	MinQuota      int64         `json:"min_quota"`
 	MaxQuota      int64         `json:"max_quota"`
@@ -35,6 +38,7 @@ func DefaultCheckinConfig() *CheckinConfig {
 		Enabled:    true,
 		Timezone:   "Asia/Shanghai",
 		Mode:       "random",
+		RewardType: QuotaTypePermanent,
 		FixedQuota: 100000,
 		MinQuota:   50000,
 		MaxQuota:   200000,
@@ -85,6 +89,8 @@ func GetCheckinConfig(db *gorm.DB) (*CheckinConfig, error) {
 	if err := json.Unmarshal([]byte(raw), &c); err != nil {
 		return nil, err
 	}
+	// 存量配置无 reward_type,按永久额度解释。
+	c.RewardType = NormalizeQuotaType(c.RewardType)
 	return &c, nil
 }
 
@@ -92,6 +98,13 @@ func GetCheckinConfig(db *gorm.DB) (*CheckinConfig, error) {
 func SaveCheckinConfig(db *gorm.DB, c *CheckinConfig) error {
 	if c.Mode != "fixed" && c.Mode != "random" {
 		return errors.New("mode must be fixed or random")
+	}
+	// 空值(旧前端不带该字段)视为永久额度;其他非法取值直接拒绝。
+	if c.RewardType == "" {
+		c.RewardType = QuotaTypePermanent
+	}
+	if c.RewardType != QuotaTypePermanent && c.RewardType != QuotaTypeTemporary {
+		return errors.New("reward_type must be permanent or temporary")
 	}
 	if c.Timezone == "" {
 		c.Timezone = "Asia/Shanghai"

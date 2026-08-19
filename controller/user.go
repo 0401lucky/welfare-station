@@ -21,10 +21,15 @@ func (a *App) GetSelf(c *gin.Context) {
 	}
 
 	var balance *int64
+	// 限时额度桶:new-api 未返回(旧版镜像)或查询失败时一律按 0 处理,不报错。
+	var tempBalance int64
+	var tempExpiresAt int64
 	if user.NewapiUserID != nil {
 		nu, err := a.NewAPI.GetUser(*user.NewapiUserID)
 		if err == nil {
 			balance = &nu.Quota
+			tempBalance = nu.TemporaryQuota
+			tempExpiresAt = nu.TemporaryQuotaExpiresAt
 		} else {
 			// Balance is display-only; degrade gracefully.
 			log.Printf("self: fetch new-api balance failed for user %d: %v", user.ID, err)
@@ -32,9 +37,11 @@ func (a *App) GetSelf(c *gin.Context) {
 	}
 
 	common.Ok(c, gin.H{
-		"user":           user,
-		"bound":          user.NewapiUserID != nil,
-		"newapi_balance": balance,
+		"user":                   user,
+		"bound":                  user.NewapiUserID != nil,
+		"newapi_balance":         balance,
+		"newapi_temp_balance":    tempBalance,
+		"newapi_temp_expires_at": tempExpiresAt,
 	})
 }
 

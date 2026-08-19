@@ -14,14 +14,15 @@ import (
 // NewAPIUser mirrors the fields of the new-api user object returned by the
 // AdminAuth endpoints (design.md §4.1 / §4.3).
 type NewAPIUser struct {
-	ID             int64  `json:"id"`
-	Username       string `json:"username"`
-	DisplayName    string `json:"display_name"`
-	LinuxDOID      string `json:"linux_do_id"`
-	Quota          int64  `json:"quota"`
-	TemporaryQuota int64  `json:"temporary_quota"`
-	Status         int    `json:"status"`
-	Role           int    `json:"role"`
+	ID                      int64  `json:"id"`
+	Username                string `json:"username"`
+	DisplayName             string `json:"display_name"`
+	LinuxDOID               string `json:"linux_do_id"`
+	Quota                   int64  `json:"quota"`
+	TemporaryQuota          int64  `json:"temporary_quota"`
+	TemporaryQuotaExpiresAt int64  `json:"temporary_quota_expires_at"` // unix 秒;已过期为 0
+	Status                  int    `json:"status"`
+	Role                    int    `json:"role"`
 }
 
 // newAPIEnvelope is the shared response wrapper `{success, message, data}`.
@@ -128,4 +129,17 @@ func (c *NewAPIClient) AddQuota(newapiUserID, value int64) error {
 		"value":  value,
 	}
 	return c.do(http.MethodPost, "/api/user/manage", body, nil)
+}
+
+// AddTemporaryQuota 发放「今日限时额度」:不增加永久余额,次日 00:00(北京时间)由
+// new-api 自动失效。契约见任务说明 POST /api/user/temporary_quota。
+func (c *NewAPIClient) AddTemporaryQuota(newapiUserID, value int64) error {
+	if value <= 0 {
+		return errors.New("quota value must be positive")
+	}
+	body := map[string]any{
+		"user_id": newapiUserID,
+		"quota":   value,
+	}
+	return c.do(http.MethodPost, "/api/user/temporary_quota", body, nil)
 }

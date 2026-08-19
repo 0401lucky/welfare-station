@@ -8,10 +8,12 @@ import (
 
 // User is a welfare-station side user record (w_users).
 type User struct {
-	ID             int64      `gorm:"primaryKey;autoIncrement" json:"id"`
-	LinuxDOID      string     `gorm:"type:varchar(32);uniqueIndex;not null" json:"linux_do_id"`
-	LinuxDOName    string     `gorm:"type:varchar(64);not null" json:"linux_do_name"`
-	DisplayName    string     `gorm:"type:varchar(64)" json:"display_name"`
+	ID          int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	LinuxDOID   string `gorm:"type:varchar(32);uniqueIndex;not null" json:"linux_do_id"`
+	LinuxDOName string `gorm:"type:varchar(64);not null" json:"linux_do_name"`
+	DisplayName string `gorm:"type:varchar(64)" json:"display_name"`
+	// AvatarURL 为 LinuxDO 头像外链(归一化后),存量行为空串,前端需自行兜底。
+	AvatarURL      string     `gorm:"type:varchar(255)" json:"avatar_url"`
 	TrustLevel     int        `gorm:"not null;default:0" json:"trust_level"`
 	NewapiUserID   *int64     `gorm:"uniqueIndex" json:"newapi_user_id"` // NULL = not bound
 	NewapiUsername string     `gorm:"type:varchar(64)" json:"newapi_username"`
@@ -74,17 +76,21 @@ func (Claim) TableName() string { return "w_claims" }
 // uk_type_ref ensures one grant per business action (checkin/activity).
 // Manual grants carry a unique generated ref_id so the same constraint stays safe.
 type Grant struct {
-	ID           int64      `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID       int64      `gorm:"not null;index" json:"user_id"`
-	NewapiUserID int64      `gorm:"not null" json:"newapi_user_id"`
-	Type         string     `gorm:"type:varchar(16);not null;uniqueIndex:uk_type_ref,priority:1" json:"type"` // checkin | activity | manual
-	RefID        int64      `gorm:"not null;uniqueIndex:uk_type_ref,priority:2" json:"ref_id"`                // checkin.id / claim.id / manual snowflake-ish id
-	Quota        int64      `gorm:"not null" json:"quota"`
-	Status       string     `gorm:"type:varchar(16);not null" json:"status"` // pending | success | failed
-	Error        string     `gorm:"type:varchar(500)" json:"error"`
-	RetriedAt    *time.Time `json:"retried_at"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	ID           int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID       int64  `gorm:"not null;index" json:"user_id"`
+	NewapiUserID int64  `gorm:"not null" json:"newapi_user_id"`
+	Type         string `gorm:"type:varchar(16);not null;uniqueIndex:uk_type_ref,priority:1" json:"type"` // checkin | activity | manual
+	RefID        int64  `gorm:"not null;uniqueIndex:uk_type_ref,priority:2" json:"ref_id"`                // checkin.id / claim.id / manual snowflake-ish id
+	Quota        int64  `gorm:"not null" json:"quota"`
+	// QuotaType 记录本次发放的额度类型:permanent(永久余额)/ temporary(今日限时额度)。
+	// 随流水持久化,重试时按这里的值重发,不读当前签到配置(否则改配置会导致补发错类型)。
+	// 存量数据无此列,AutoMigrate 后为默认值 permanent。
+	QuotaType string     `gorm:"type:varchar(16);not null;default:permanent" json:"quota_type"`
+	Status    string     `gorm:"type:varchar(16);not null" json:"status"` // pending | success | failed
+	Error     string     `gorm:"type:varchar(500)" json:"error"`
+	RetriedAt *time.Time `json:"retried_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
 }
 
 func (Grant) TableName() string { return "w_grants" }

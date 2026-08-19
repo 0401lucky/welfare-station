@@ -10,7 +10,7 @@ import Quota from '@/components/Quota'
 import { Clover } from '@/components/Clover'
 import { Badge, Button, Card, ConfirmDialog, Input, MoneyInput, Progress, Select, Spinner, Table, Textarea } from '@/components/ui'
 import { toast } from '@/components/Toast'
-import { api, ActivityClaim, AdminActivity, CheckinConfig, Dashboard, GrantRecord, Page, User } from '@/lib/api'
+import { api, ActivityClaim, AdminActivity, CheckinConfig, Dashboard, GrantRecord, Page, QuotaType, User } from '@/lib/api'
 import { useMe, useSiteInfo } from '@/hooks/useMe'
 import { formatDateTime, formatUSD } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -254,6 +254,32 @@ function ConfigTab() {
           </span>
           <input type="checkbox" checked={localCfg?.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-5 w-5 accent-clover-500" />
         </label>
+        <div>
+          <label className="mb-1.5 block text-xs text-muted-foreground">奖励类型</label>
+          <div className="flex gap-2">
+            {([
+              ['permanent', '永久余额'],
+              ['temporary', '今日限时额度'],
+            ] as [QuotaType, string][]).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => set({ reward_type: value })}
+                className={cn(
+                  'rounded-full border px-4 py-1.5 text-sm transition-colors',
+                  (localCfg?.reward_type ?? 'permanent') === value
+                    ? 'border-transparent bg-clover-gradient text-white shadow-leaf-sm'
+                    : 'border-clover-100 bg-white/80 text-clover-700 hover:bg-clover-50',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            限时额度不增加永久余额,将在次日 00:00 自动失效。
+          </p>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">奖励模式</label>
@@ -536,11 +562,12 @@ function GrantsTab() {
       {isLoading ? <Loading /> : (
         <Card className="p-3 sm:p-4">
           <Table
-            head={['ID', '类型', '额度', '状态', '错误', '时间', '操作']}
+            head={['ID', '类型', '额度', '额度类型', '状态', '错误', '时间', '操作']}
             rows={(data?.items ?? []).map((g) => [
               <span key="i" className="text-muted-foreground">{g.id}</span>,
               <span key="t" className="text-clover-800">{typeZh(g.type)} #{g.ref_id}</span>,
               <Quota key="q" value={g.quota} />,
+              <Badge key="qt" className={quotaTypeCls(g.quota_type)}>{quotaTypeText(g.quota_type)}</Badge>,
               <Badge key="s" className={grantStatusCls(g.status)}>{grantStatusText(g.status)}</Badge>,
               <span key="e" className="block max-w-[12rem] truncate text-xs text-muted-foreground" title={g.error}>{g.error || '-'}</span>,
               <span key="d" className="text-xs text-muted-foreground">{formatDateTime(g.created_at)}</span>,
@@ -560,6 +587,13 @@ function GrantsTab() {
 }
 
 function typeZh(t: string) { return { checkin: '签到', activity: '活动', manual: '手动' }[t] ?? t }
+/* 存量流水没有 quota_type,后端已兜底为 permanent,这里再兜一层空值 */
+function quotaTypeText(t?: string) { return t === 'temporary' ? '限时' : '永久' }
+function quotaTypeCls(t?: string) {
+  return t === 'temporary'
+    ? 'border border-gold-300 bg-cream text-gold-600'
+    : 'border border-clover-100 bg-clover-50 text-clover-700'
+}
 function grantStatusText(s: string) { return { success: '成功', failed: '失败', pending: '处理中' }[s] ?? s }
 function grantStatusCls(s: string) {
   return {

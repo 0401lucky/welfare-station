@@ -133,6 +133,7 @@ func DoCheckin(db *gorm.DB, grants *GrantService, cfg *CheckinConfig, user *mode
 			Type:         "checkin",
 			RefID:        checkin.ID,
 			Quota:        total,
+			QuotaType:    NormalizeQuotaType(cfg.RewardType),
 		}
 		return grants.GrantTx(tx, &grant)
 	})
@@ -200,6 +201,7 @@ func GetCheckinView(db *gorm.DB, cfg *CheckinConfig, user *model.User, now time.
 		"rules": map[string]any{
 			"enabled":        cfg.Enabled,
 			"mode":           cfg.Mode,
+			"reward_type":    NormalizeQuotaType(cfg.RewardType),
 			"fixed_quota":    cfg.FixedQuota,
 			"min_quota":      cfg.MinQuota,
 			"max_quota":      cfg.MaxQuota,

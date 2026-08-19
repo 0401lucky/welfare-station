@@ -42,3 +42,14 @@ export function timeAgo(unix: number): string {
   if (m > 0) return `${m} 分钟前`
   return '刚刚'
 }
+
+/**
+ * 限时额度失效提示。unix 为 0 表示后端没给失效时间(旧版 new-api 或无限时额度),
+ * 此时只说明「今日有效」,不编造具体时刻。
+ */
+export function formatExpireIn(unix?: number): string {
+  if (!unix) return '今日有效'
+  const now = Math.floor(Date.now() / 1000)
+  if (unix <= now) return '已失效'
+  return `${timeAgo(unix)}后失效`
+}

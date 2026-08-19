@@ -23,20 +23,27 @@ type mockNewAPI struct {
 	callCount    int64
 	failNext     int64 // fail the first N calls
 	successCalls int64
+	tempCalls    int64 // /api/user/temporary_quota 命中次数
+	permCalls    int64 // /api/user/manage 命中次数
 }
 
 func newMockNewAPI() *mockNewAPI {
 	m := &mockNewAPI{}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/user/manage", func(w http.ResponseWriter, r *http.Request) {
-		n := atomic.AddInt64(&m.callCount, 1)
-		if atomic.LoadInt64(&m.failNext) >= n {
-			writeGrantJSON(w, http.StatusOK, false, "模拟发放失败")
-			return
+	handle := func(counter *int64) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt64(counter, 1)
+			n := atomic.AddInt64(&m.callCount, 1)
+			if atomic.LoadInt64(&m.failNext) >= n {
+				writeGrantJSON(w, http.StatusOK, false, "模拟发放失败")
+				return
+			}
+			atomic.AddInt64(&m.successCalls, 1)
+			writeGrantJSON(w, http.StatusOK, true, "")
 		}
-		atomic.AddInt64(&m.successCalls, 1)
-		writeGrantJSON(w, http.StatusOK, true, "")
-	})
+	}
+	mux.HandleFunc("/api/user/manage", handle(&m.permCalls))
+	mux.HandleFunc("/api/user/temporary_quota", handle(&m.tempCalls))
 	m.srv = httptest.NewServer(mux)
 	return m
 }
@@ -241,5 +248,74 @@ func TestRetryNotFailedRejected(t *testing.T) {
 	}
 	if err := svc.Retry(gr.ID); !errors.Is(err, ErrNotFailed) {
 		t.Fatalf("expected ErrNotFailed, got %v", err)
+	}
+}
+
+// TestGrantQuotaTypeRouting 验证发放器按流水记录的额度类型选接口,
+// 且存量流水(quota_type 为空)按永久额度处理。
+func TestGrantQuotaTypeRouting(t *testing.T) {
+	cases := []struct {
+		name      string
+		quotaType string
+		wantTemp  int64
+		wantPerm  int64
+	}{
+		{"限时额度走 temporary_quota", QuotaTypeTemporary, 1, 0},
+		{"永久额度走 manage", QuotaTypePermanent, 0, 1},
+		{"存量空值按永久处理", "", 0, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, mock, _ := setupGrantService(t)
+			defer mock.Close()
+
+			gr := &model.Grant{UserID: 1, NewapiUserID: 42, Type: "manual",
+				RefID: NewManualRefID(), Quota: 100, QuotaType: tc.quotaType}
+			if err := svc.Grant(gr); err != nil {
+				t.Fatalf("grant: %v", err)
+			}
+			if got := atomic.LoadInt64(&mock.tempCalls); got != tc.wantTemp {
+				t.Fatalf("temporary_quota 调用次数 = %d, want %d", got, tc.wantTemp)
+			}
+			if got := atomic.LoadInt64(&mock.permCalls); got != tc.wantPerm {
+				t.Fatalf("manage 调用次数 = %d, want %d", got, tc.wantPerm)
+			}
+		})
+	}
+}
+
+// TestRetryUsesPersistedQuotaType 验证重试沿用流水当初记录的额度类型:
+// 站长在失败后把签到配置改回永久额度,补发仍必须走限时接口。
+func TestRetryUsesPersistedQuotaType(t *testing.T) {
+	svc, mock, db := setupGrantService(t)
+	defer mock.Close()
+	mock.failNext = 1 // 首次发放失败
+
+	gr := &model.Grant{UserID: 1, NewapiUserID: 42, Type: "checkin", RefID: 901,
+		Quota: 100, QuotaType: QuotaTypeTemporary}
+	if err := svc.Grant(gr); err == nil {
+		t.Fatalf("首次发放应当暴露外呼失败")
+	}
+
+	// 模拟站长把签到配置改回永久额度——重试不应受此影响。
+	cfg := DefaultCheckinConfig()
+	cfg.RewardType = QuotaTypePermanent
+	if err := SaveCheckinConfig(db, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	if err := svc.Retry(gr.ID); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	var g model.Grant
+	db.First(&g, gr.ID)
+	if g.Status != GrantStatusSuccess {
+		t.Fatalf("重试后应为 success,实际 %s", g.Status)
+	}
+	if got := atomic.LoadInt64(&mock.tempCalls); got != 2 {
+		t.Fatalf("两次都应打到 temporary_quota,实际 %d", got)
+	}
+	if got := atomic.LoadInt64(&mock.permCalls); got != 0 {
+		t.Fatalf("不应打到永久额度接口,实际 %d", got)
 	}
 }

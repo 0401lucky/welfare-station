@@ -18,12 +18,14 @@ func UpsertUserFromOAuth(db *gorm.DB, o *OAuthUser, isAdmin bool) (*model.User, 
 	var user model.User
 	err := db.Where("linux_do_id = ?", linuxDOID).First(&user).Error
 	isNew := false
+	avatar := NormalizeAvatarURL(o)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		isNew = true
 		user = model.User{
 			LinuxDOID:   linuxDOID,
 			LinuxDOName: o.Username,
 			DisplayName: o.Name,
+			AvatarURL:   avatar,
 			TrustLevel:  o.TrustLevel,
 			Status:      1,
 		}
@@ -33,6 +35,10 @@ func UpsertUserFromOAuth(db *gorm.DB, o *OAuthUser, isAdmin bool) (*model.User, 
 		user.LinuxDOName = o.Username
 		user.DisplayName = o.Name
 		user.TrustLevel = o.TrustLevel
+		// LinuxDO 没给头像时保留库里已有的,避免一次异常响应把头像清空。
+		if avatar != "" {
+			user.AvatarURL = avatar
+		}
 	}
 
 	user.IsAdmin = isAdmin

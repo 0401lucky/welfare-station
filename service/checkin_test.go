@@ -161,3 +161,48 @@ func TestDoCheckinDisabled(t *testing.T) {
 		t.Fatalf("expected ErrCheckinDisabled, got %v", err)
 	}
 }
+
+// TestCheckinRewardTypeTemporary 验证限时额度模式的签到打到 temporary_quota 接口,
+// 且流水持久化了该类型;permanent 模式(含存量空值)仍走永久额度接口。
+func TestCheckinRewardTypeTemporary(t *testing.T) {
+	cases := []struct {
+		name       string
+		rewardType string
+		wantTemp   int64
+		wantPerm   int64
+		wantStored string
+	}{
+		{"限时额度", QuotaTypeTemporary, 1, 0, QuotaTypeTemporary},
+		{"永久额度", QuotaTypePermanent, 0, 1, QuotaTypePermanent},
+		{"存量配置空值按永久", "", 0, 1, QuotaTypePermanent},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, mock, db := setupGrantService(t)
+			defer mock.Close()
+			user := model.User{LinuxDOID: "u", LinuxDOName: "u", TrustLevel: 2, Status: 1, NewapiUserID: int64Ptr(7)}
+			db.Create(&user)
+
+			cfg := fixedConfig(true, 1000)
+			cfg.RewardType = tc.rewardType
+			res, err := DoCheckin(db, svc, cfg, &user)
+			if err != nil {
+				t.Fatalf("checkin: %v", err)
+			}
+			if res.OutErr != nil {
+				t.Fatalf("外呼不应失败: %v", res.OutErr)
+			}
+			if got := atomic.LoadInt64(&mock.tempCalls); got != tc.wantTemp {
+				t.Fatalf("temporary_quota 调用次数 = %d, want %d", got, tc.wantTemp)
+			}
+			if got := atomic.LoadInt64(&mock.permCalls); got != tc.wantPerm {
+				t.Fatalf("manage 调用次数 = %d, want %d", got, tc.wantPerm)
+			}
+			var g model.Grant
+			db.First(&g, res.Grant.ID)
+			if g.QuotaType != tc.wantStored {
+				t.Fatalf("流水记录的额度类型 = %q, want %q", g.QuotaType, tc.wantStored)
+			}
+		})
+	}
+}

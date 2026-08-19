@@ -20,13 +20,38 @@ const (
 )
 
 // OAuthUser mirrors the LinuxDO /api/user payload.
+// 头像字段两种写法都收:Discourse 系可能给 avatar_url,也可能只给
+// avatar_template(含 {size} 占位、常为相对路径),用 NormalizeAvatarURL 归一。
 type OAuthUser struct {
-	ID         int    `json:"id"`
-	Username   string `json:"username"`
-	Name       string `json:"name"`
-	Active     bool   `json:"active"`
-	TrustLevel int    `json:"trust_level"`
-	Silenced   bool   `json:"silenced"`
+	ID             int    `json:"id"`
+	Username       string `json:"username"`
+	Name           string `json:"name"`
+	Active         bool   `json:"active"`
+	TrustLevel     int    `json:"trust_level"`
+	Silenced       bool   `json:"silenced"`
+	AvatarURL      string `json:"avatar_url"`
+	AvatarTemplate string `json:"avatar_template"`
+}
+
+// LinuxDOSiteURL 是 avatar_template 为相对路径时要补的站点前缀。
+const LinuxDOSiteURL = "https://linux.do"
+
+// NormalizeAvatarURL 归一化 LinuxDO 头像地址:
+// avatar_url 非空优先;否则用 avatar_template 并把 {size} 换成 144;
+// 结果以 / 开头则补站点前缀;都没有则返回空串(前端自行兜底)。
+func NormalizeAvatarURL(o *OAuthUser) string {
+	raw := strings.TrimSpace(o.AvatarURL)
+	if raw == "" {
+		raw = strings.TrimSpace(o.AvatarTemplate)
+		raw = strings.ReplaceAll(raw, "{size}", "144")
+	}
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "/") {
+		return LinuxDOSiteURL + raw
+	}
+	return raw
 }
 
 // LinuxDOClient performs the OAuth authorization-code flow (design.md §6).

@@ -58,6 +58,8 @@ export interface User {
   linux_do_id: string
   linux_do_name: string
   display_name: string
+  // LinuxDO 头像外链,存量用户为空串,前端必须兜底
+  avatar_url: string
   trust_level: number
   newapi_user_id: number | null
   newapi_username: string
@@ -69,7 +71,15 @@ export interface SelfInfo {
   user: User
   bound: boolean
   newapi_balance: number | null
+  // 限时额度桶:new-api 未返回或查询失败时后端给 0
+  newapi_temp_balance: number
+  // 限时额度失效时间(unix 秒),0 表示无
+  newapi_temp_expires_at: number
 }
+
+// 签到奖励额度类型:永久余额 / 今日限时额度(次日 00:00 失效)。
+// 后端对存量数据统一兜底为 permanent,前端可直接信任该字段。
+export type QuotaType = 'permanent' | 'temporary'
 
 export interface CheckinView {
   today: string
@@ -79,6 +89,7 @@ export interface CheckinView {
   rules: {
     enabled: boolean
     mode: string
+    reward_type: QuotaType
     fixed_quota: number
     min_quota: number
     max_quota: number
@@ -141,6 +152,7 @@ export interface GrantRecord {
   type: 'checkin' | 'activity' | 'manual'
   ref_id: number
   quota: number
+  quota_type: QuotaType
   status: 'pending' | 'success' | 'failed'
   error: string
   retried_at: string | null
@@ -151,6 +163,7 @@ export interface CheckinResult {
   quota: number
   streak: number
   bonus: number
+  quota_type: QuotaType
   grant_status: 'success' | 'failed' | 'pending'
 }
 
@@ -164,6 +177,7 @@ export interface CheckinConfig {
   enabled: boolean
   timezone: string
   mode: 'fixed' | 'random'
+  reward_type: QuotaType
   fixed_quota: number
   min_quota: number
   max_quota: number

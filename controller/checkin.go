@@ -61,9 +61,10 @@ func (a *App) DoCheckin(c *gin.Context) {
 	}
 
 	data := gin.H{
-		"quota":  res.Checkin.Quota,
-		"streak": res.Checkin.Streak,
-		"bonus":  res.Bonus,
+		"quota":      res.Checkin.Quota,
+		"streak":     res.Checkin.Streak,
+		"bonus":      res.Bonus,
+		"quota_type": res.Grant.QuotaType,
 	}
 	if res.OutErr != nil {
 		// The check-in is recorded but the payout needs a manual retry.

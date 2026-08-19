@@ -95,6 +95,9 @@ export default function RecordsPage() {
                           {typeMap[g.type] ?? g.type}
                         </span>
                         <Badge className={statusCls(g.status)}>{statusText(g.status)}</Badge>
+                        <Badge className={quotaTypeCls(g.quota_type)}>
+                          {quotaTypeText(g.quota_type)}
+                        </Badge>
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {formatDateTime(g.created_at)}
@@ -150,4 +153,15 @@ function statusCls(s: string) {
     failed: 'border border-red-100 bg-red-50 text-red-500',
     pending: 'border border-gold-300 bg-cream text-gold-600',
   }[s] ?? 'border border-clover-100 bg-muted text-muted-foreground'
+}
+
+/* 额度类型:限时额度次日 00:00 失效,与永久余额分开标记(存量流水兜底为永久) */
+function quotaTypeText(t?: string) {
+  return t === 'temporary' ? '限时·今日有效' : '永久余额'
+}
+
+function quotaTypeCls(t?: string) {
+  return t === 'temporary'
+    ? 'border border-gold-300 bg-cream text-gold-600'
+    : 'border border-clover-100 bg-clover-50 text-clover-700'
 }

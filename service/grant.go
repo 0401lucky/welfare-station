@@ -17,6 +17,20 @@ const (
 	GrantStatusFailed  = "failed"
 )
 
+// 额度类型(w_grants.quota_type):永久余额 / 今日限时额度。
+const (
+	QuotaTypePermanent = "permanent"
+	QuotaTypeTemporary = "temporary"
+)
+
+// NormalizeQuotaType 把空值/未知值一律按永久额度解释,保证存量流水与旧配置兼容。
+func NormalizeQuotaType(t string) string {
+	if t == QuotaTypeTemporary {
+		return QuotaTypeTemporary
+	}
+	return QuotaTypePermanent
+}
+
 // ErrNotFailed is returned by Retry when the grant is not in a failed state
 // (e.g. a concurrent retry already picked it up, or it already succeeded).
 var ErrNotFailed = errors.New("grant is not failed")
@@ -57,6 +71,7 @@ func NewGrantService(db *gorm.DB, newapi *NewAPIClient) *GrantService {
 func (g *GrantService) GrantTx(tx *gorm.DB, gr *model.Grant) error {
 	gr.Status = GrantStatusPending
 	gr.Error = ""
+	gr.QuotaType = NormalizeQuotaType(gr.QuotaType)
 	if err := tx.Create(gr).Error; err != nil {
 		if isDuplicateErr(err) {
 			return ErrDuplicateGrant
@@ -94,11 +109,20 @@ var errLoadGrant = errors.New("grant persisted but failed to reload")
 // It returns the outbound call error (nil on success) so controllers can tell
 // the user "发放遇到问题,会尽快补发"; the failed status is already persisted.
 func (g *GrantService) ExecuteAfterCommit(gr *model.Grant) error {
-	callErr := g.newapi.AddQuota(gr.NewapiUserID, gr.Quota)
+	callErr := g.callNewAPI(gr)
 	if err := g.writeResult(gr.ID, callErr); err != nil {
 		return err
 	}
 	return callErr
+}
+
+// callNewAPI 按流水自身记录的额度类型选择发放接口。重试路径同样走这里,
+// 因此补发的类型与当初签到时一致,不受站长事后改配置影响。
+func (g *GrantService) callNewAPI(gr *model.Grant) error {
+	if NormalizeQuotaType(gr.QuotaType) == QuotaTypeTemporary {
+		return g.newapi.AddTemporaryQuota(gr.NewapiUserID, gr.Quota)
+	}
+	return g.newapi.AddQuota(gr.NewapiUserID, gr.Quota)
 }
 
 // ExecuteGrant is a convenience that loads the grant by id and executes it.
