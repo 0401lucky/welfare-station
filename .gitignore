@@ -26,3 +26,5 @@ web/dist/*
 .pi/
 .trellis/
 AGENTS.md
+# Playwright 调试产物
+.playwright-mcp/
