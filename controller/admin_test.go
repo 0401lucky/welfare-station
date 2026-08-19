@@ -142,7 +142,8 @@ func TestAdminWorkflow(t *testing.T) {
 	}
 
 	// 5. Update (toggle off).
-	rec = performJSON(adminRoutes(app), http.MethodPut, fmt.Sprintf("/api/admin/activities/%d", aid), `{"status":2}`, cookie)
+	offJSON := fmt.Sprintf(`{"title":"新活动","quota":500,"total_count":10,"per_user_limit":1,"min_trust_level":0,"start_at":%q,"end_at":%q,"status":2}`, start, end)
+	rec = performJSON(adminRoutes(app), http.MethodPut, fmt.Sprintf("/api/admin/activities/%d", aid), offJSON, cookie)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update activity: %d %s", rec.Code, rec.Body.String())
 	}
@@ -229,6 +230,75 @@ func TestAdminManualGrant(t *testing.T) {
 	rec2 := performJSON(adminRoutes(app), http.MethodPost, "/api/admin/grants/manual", `{"newapi_user_id":42,"quota":99999999999}`, cookie)
 	if rec2.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for over-limit quota, got %d", rec2.Code)
+	}
+}
+
+// TestAdminUpdateActivity 覆盖编辑活动：RFC3339 时间可落库（回归 500 bug）、
+// 可保存为下架、claimed_count 不被请求体改写、total_count 不得小于已领取数。
+func TestAdminUpdateActivity(t *testing.T) {
+	app, srv, db := checkinTestApp(t)
+	defer srv.Close()
+	admin, _ := adminUsers(t, app)
+	cookie := sessionCookie(t, app, admin.ID, true)
+
+	start := time.Now().Add(-time.Hour).UTC()
+	end := time.Now().Add(24 * time.Hour).UTC()
+	act := model.Activity{
+		Title: "原标题", Quota: 500, TotalCount: 10, ClaimedCount: 3,
+		PerUserLimit: 1, MinTrustLevel: 0, StartAt: start, EndAt: end,
+		Status: service.ActivityStatusOn,
+	}
+	if err := db.Create(&act).Error; err != nil {
+		t.Fatalf("准备活动失败: %v", err)
+	}
+	path := fmt.Sprintf("/api/admin/activities/%d", act.ID)
+
+	// 1+2+3. 正常更新：带毫秒的 RFC3339 时间（前端 toISOString 格式），状态改为下架。
+	newEnd := "2026-08-20T09:08:43.589Z"
+	body := fmt.Sprintf(`{"title":"改后标题","description":"说明","quota":800,"total_count":12,`+
+		`"per_user_limit":2,"min_trust_level":1,"start_at":%q,"end_at":%q,"status":2}`,
+		start.Format(time.RFC3339), newEnd)
+	rec := performJSON(adminRoutes(app), http.MethodPut, path, body, cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("更新应返回 200，实际 %d %s", rec.Code, rec.Body.String())
+	}
+	var got model.Activity
+	db.First(&got, act.ID)
+	if got.Title != "改后标题" || got.Quota != 800 || got.TotalCount != 12 || got.PerUserLimit != 2 || got.MinTrustLevel != 1 {
+		t.Fatalf("字段未正确落库: %+v", got)
+	}
+	if got.Status != service.ActivityStatusOff {
+		t.Fatalf("状态应保存为下架(2)，实际 %d", got.Status)
+	}
+	wantEnd, _ := time.Parse(time.RFC3339, newEnd)
+	if !got.EndAt.UTC().Truncate(time.Second).Equal(wantEnd.UTC().Truncate(time.Second)) {
+		t.Fatalf("结束时间未正确落库: got %v want %v", got.EndAt, wantEnd)
+	}
+
+	// 4. 请求体里的 claimed_count 必须被忽略。
+	body = fmt.Sprintf(`{"title":"改后标题","quota":800,"total_count":12,"per_user_limit":2,`+
+		`"min_trust_level":1,"start_at":%q,"end_at":%q,"status":2,"claimed_count":999,"id":4242}`,
+		start.Format(time.RFC3339), newEnd)
+	rec = performJSON(adminRoutes(app), http.MethodPut, path, body, cookie)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("更新应返回 200，实际 %d %s", rec.Code, rec.Body.String())
+	}
+	db.First(&got, act.ID)
+	if got.ClaimedCount != 3 {
+		t.Fatalf("claimed_count 不应被请求体改写，实际 %d", got.ClaimedCount)
+	}
+
+	// 5. total_count 小于已领取数 → 400。
+	body = fmt.Sprintf(`{"title":"改后标题","quota":800,"total_count":1,"per_user_limit":1,`+
+		`"min_trust_level":0,"start_at":%q,"end_at":%q,"status":1}`,
+		start.Format(time.RFC3339), newEnd)
+	rec = performJSON(adminRoutes(app), http.MethodPut, path, body, cookie)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("total_count 小于已领取数应返回 400，实际 %d %s", rec.Code, rec.Body.String())
+	}
+	db.First(&got, act.ID)
+	if got.TotalCount != 12 {
+		t.Fatalf("校验失败时不应写库，实际 total_count=%d", got.TotalCount)
 	}
 }
 

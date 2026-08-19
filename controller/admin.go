@@ -158,12 +158,70 @@ func (a *App) AdminUpdateActivity(c *gin.Context) {
 		common.Fail(c, http.StatusNotFound, "活动不存在")
 		return
 	}
-	var body map[string]any
+	var body struct {
+		Title         string `json:"title"`
+		Description   string `json:"description"`
+		Quota         int64  `json:"quota"`
+		TotalCount    int    `json:"total_count"`
+		PerUserLimit  int    `json:"per_user_limit"`
+		MinTrustLevel int    `json:"min_trust_level"`
+		StartAt       string `json:"start_at"`
+		EndAt         string `json:"end_at"`
+		Status        int    `json:"status"`
+	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		common.BadRequest(c, "JSON 格式错误")
 		return
 	}
-	if err := a.DB.Model(&act).Updates(body).Error; err != nil {
+	startAt, err := time.Parse(time.RFC3339, body.StartAt)
+	if err != nil {
+		common.BadRequest(c, "start_at 需为 RFC3339 时间")
+		return
+	}
+	endAt, err := time.Parse(time.RFC3339, body.EndAt)
+	if err != nil {
+		common.BadRequest(c, "end_at 需为 RFC3339 时间")
+		return
+	}
+	if body.Title == "" || body.Quota <= 0 || body.TotalCount <= 0 {
+		common.BadRequest(c, "title/quota/total_count 必填且需为正数")
+		return
+	}
+	if endAt.Before(startAt) {
+		common.BadRequest(c, "结束时间需晚于开始时间")
+		return
+	}
+	// 总份数不得少于已领份数，否则剩余库存会算成负数。
+	if body.TotalCount < act.ClaimedCount {
+		common.BadRequest(c, "总份数不能小于已领取份数 "+strconv.Itoa(act.ClaimedCount))
+		return
+	}
+	if body.PerUserLimit <= 0 {
+		body.PerUserLimit = 1
+	}
+	if body.MinTrustLevel < 0 {
+		body.MinTrustLevel = 0
+	}
+	// 编辑路径必须能保存为「下架」，非法值一律拒绝而非兜底成上架。
+	if body.Status != service.ActivityStatusOn && body.Status != service.ActivityStatusOff {
+		common.BadRequest(c, "status 只能为上架或下架")
+		return
+	}
+	// 只更新白名单字段：claimed_count / id / created_at 不受请求体影响。
+	updates := model.Activity{
+		Title:         body.Title,
+		Description:   body.Description,
+		Quota:         body.Quota,
+		TotalCount:    body.TotalCount,
+		PerUserLimit:  body.PerUserLimit,
+		MinTrustLevel: body.MinTrustLevel,
+		StartAt:       startAt,
+		EndAt:         endAt,
+		Status:        body.Status,
+	}
+	if err := a.DB.Model(&act).
+		Select("title", "description", "quota", "total_count", "per_user_limit", "min_trust_level", "start_at", "end_at", "status").
+		Updates(updates).Error; err != nil {
 		common.InternalError(c, "更新活动失败")
 		return
 	}
