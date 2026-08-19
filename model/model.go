@@ -89,8 +89,12 @@ type Grant struct {
 	Status    string     `gorm:"type:varchar(16);not null" json:"status"` // pending | success | failed
 	Error     string     `gorm:"type:varchar(500)" json:"error"`
 	RetriedAt *time.Time `json:"retried_at"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	// RetryCount / NextRetryAt 供后台自动重试器使用:失败一次计数 +1 并按退避表推迟
+	// 下次可重试时间。存量行 AutoMigrate 后为 0 / NULL,即「立即可重试、预算全满」。
+	RetryCount  int        `gorm:"not null;default:0" json:"retry_count"`
+	NextRetryAt *time.Time `json:"next_retry_at"` // NULL = 立即可重试
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 func (Grant) TableName() string { return "w_grants" }

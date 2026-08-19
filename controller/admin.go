@@ -281,7 +281,10 @@ func (a *App) AdminListGrants(c *gin.Context) {
 		common.InternalError(c, "读取流水失败")
 		return
 	}
-	common.Ok(c, gin.H{"total": total, "page": page, "page_size": pageSize, "items": grants})
+	common.Ok(c, gin.H{"total": total, "page": page, "page_size": pageSize, "items": grants,
+		// 前端据此判断某条失败流水是否已用尽自动重试预算(需人工介入)。
+		"auto_retry_enabled":      a.Config.AutoRetryEnabled,
+		"auto_retry_max_attempts": a.Config.AutoRetryMaxAttempts})
 }
 
 // POST /api/admin/grants/:id/retry — retry a failed grant (R4.4 / R5.3).
@@ -292,7 +295,7 @@ func (a *App) AdminRetryGrant(c *gin.Context) {
 		return
 	}
 	grants := service.NewGrantService(a.DB, a.NewAPI)
-	if err := grants.Retry(id); err != nil {
+	if err := grants.RetryManual(id); err != nil {
 		if errors.Is(err, service.ErrNotFailed) {
 			common.BadRequest(c, "该流水不在可重试状态")
 			return

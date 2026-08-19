@@ -1,14 +1,21 @@
 package main
 
 import (
+	"context"
 	"embed"
+	"errors"
 	"io/fs"
 	"log"
 	"net/http"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 
 	"welfare/config"
 	"welfare/model"
 	"welfare/router"
+	"welfare/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -42,11 +49,44 @@ func main() {
 	// served so the backend still boots for development.
 	registerFrontend(r)
 
-	addr := ":" + cfg.Port
-	log.Printf("welfare station listening on %s", addr)
-	if err := r.Run(addr); err != nil {
-		log.Fatalf("server exited: %v", err)
+	// 容器重启是常态:收到 SIGINT/SIGTERM 后先停后台重试(等当前这条补发跑完),
+	// 再关 HTTP 服务,避免重试执行到一半被硬砍留下状态不明的流水。
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	var workers sync.WaitGroup
+	if cfg.AutoRetryEnabled {
+		grants := service.NewGrantService(db, service.NewNewAPIClient(cfg.NewAPIBaseURL, cfg.NewAPIAdminPAT))
+		worker := service.NewRetryWorker(db, grants, cfg.AutoRetryInterval, cfg.AutoRetryMaxAttempts)
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			worker.Run(ctx)
+		}()
+	} else {
+		log.Println("失败发放自动重试已关闭(AUTO_RETRY_ENABLED=false),失败流水需在后台手动重试")
 	}
+
+	addr := ":" + cfg.Port
+	srv := &http.Server{Addr: addr, Handler: r}
+	go func() {
+		log.Printf("welfare station listening on %s", addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server exited: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	stop() // 恢复默认信号行为:再按一次 Ctrl-C 可立即结束
+	log.Println("收到退出信号,正在停止后台任务...")
+	workers.Wait()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP 服务关闭超时: %v", err)
+	}
+	log.Println("已退出")
 }
 
 func registerFrontend(r *gin.Engine) {

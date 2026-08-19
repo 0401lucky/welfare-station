@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config holds all runtime settings loaded from the environment.
@@ -25,6 +26,10 @@ type Config struct {
 	QuotaPerUnit     int64
 	MaxGrantQuota    int64
 	MockOAuth        bool
+	// 失败发放的自动重试(后台 worker):默认开启,每 60 秒扫一轮,单条最多自动重试 5 次。
+	AutoRetryEnabled     bool
+	AutoRetryInterval    time.Duration
+	AutoRetryMaxAttempts int
 }
 
 // Get reads configuration from the environment, failing loudly (listing every
@@ -44,6 +49,7 @@ func Get() (*Config, error) {
 		WelfareSiteName:  strEnv("WELFARE_SITE_NAME", "福利站"),
 		AdminLinuxDOIDs:  idSet(os.Getenv("WELFARE_ADMIN_LINUXDO_IDS")),
 		MockOAuth:        strEnv("MOCK_OAUTH", "false") == "true",
+		AutoRetryEnabled: boolEnv("AUTO_RETRY_ENABLED", true),
 	}
 
 	quotaPerUnit, err1 := positiveInt64("QUOTA_PER_UNIT", os.Getenv("QUOTA_PER_UNIT"), 500000)
@@ -51,16 +57,20 @@ func Get() (*Config, error) {
 	cfg.QuotaPerUnit = quotaPerUnit
 	cfg.MaxGrantQuota = maxGrant
 
+	retryInterval, err3 := positiveInt64("AUTO_RETRY_INTERVAL_SECONDS", os.Getenv("AUTO_RETRY_INTERVAL_SECONDS"), 60)
+	retryMax, err4 := positiveInt64("AUTO_RETRY_MAX_ATTEMPTS", os.Getenv("AUTO_RETRY_MAX_ATTEMPTS"), 5)
+	cfg.AutoRetryInterval = time.Duration(retryInterval) * time.Second
+	cfg.AutoRetryMaxAttempts = int(retryMax)
+
 	// WELFARE_JWT_SECRET must be >= 32 bytes.
 	var errs []string
 	if len(cfg.WelfareJWTSecret) < 32 {
 		errs = append(errs, "WELFARE_JWT_SECRET must be at least 32 characters")
 	}
-	if err1 != "" {
-		errs = append(errs, err1)
-	}
-	if err2 != "" {
-		errs = append(errs, err2)
+	for _, e := range []string{err1, err2, err3, err4} {
+		if e != "" {
+			errs = append(errs, e)
+		}
 	}
 
 	// Required in production, but allow missing when MOCK_OAUTH is enabled for
@@ -109,6 +119,15 @@ func strEnv(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// boolEnv 解析开关型环境变量,只有显式写 false/0/off 才关闭,未配置沿用默认值。
+func boolEnv(key string, def bool) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	if v == "" {
+		return def
+	}
+	return v != "false" && v != "0" && v != "off"
 }
 
 func positiveInt64(name, raw string, def int64) (int64, string) {

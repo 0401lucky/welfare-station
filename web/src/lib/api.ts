@@ -161,7 +161,17 @@ export interface GrantRecord {
   status: 'pending' | 'success' | 'failed'
   error: string
   retried_at: string | null
+  // 自动重试进度:已自动重试次数 + 下次可重试时间(null = 立即可重试)。存量流水为 0 / null。
+  retry_count: number
+  next_retry_at: string | null
   created_at: string
+  updated_at: string
+}
+
+// 后台流水列表在分页信封外附带自动重试配置,用于判断某条失败流水是否已用尽重试预算。
+export interface GrantPage extends Page<GrantRecord> {
+  auto_retry_enabled: boolean
+  auto_retry_max_attempts: number
 }
 
 export interface CheckinResult {

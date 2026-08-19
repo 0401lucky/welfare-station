@@ -10,7 +10,7 @@ import Quota from '@/components/Quota'
 import { Clover } from '@/components/Clover'
 import { Badge, Button, Card, ConfirmDialog, Input, MoneyInput, Progress, Select, Spinner, Table, Textarea } from '@/components/ui'
 import { toast } from '@/components/Toast'
-import { api, ActivityClaim, AdminActivity, CheckinConfig, Dashboard, GrantRecord, Page, QuotaType, User } from '@/lib/api'
+import { api, ActivityClaim, AdminActivity, CheckinConfig, Dashboard, GrantPage, GrantRecord, QuotaType, User } from '@/lib/api'
 import { useMe, useSiteInfo } from '@/hooks/useMe'
 import { formatDateTime, formatUSD, hhmmToMinutes, minutesToHHMM } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -547,8 +547,9 @@ function GrantsTab() {
   const [status, setStatus] = useState('')
   const { data, isLoading } = useQuery({
     queryKey: ['admin-grants', status],
-    queryFn: () => api.get<Page<GrantRecord>>(`/api/admin/grants?page=1&page_size=50&status=${status}`),
+    queryFn: () => api.get<GrantPage>(`/api/admin/grants?page=1&page_size=50&status=${status}`),
   })
+  const maxAttempts = data?.auto_retry_enabled ? data.auto_retry_max_attempts : 0
 
   const retry = useMutation({
     mutationFn: (id: number) => api.post<GrantRecord>(`/api/admin/grants/${id}/retry`),
@@ -571,16 +572,22 @@ function GrantsTab() {
           <option value="pending">处理中</option>
         </Select>
       </div>
+      <p className="text-xs text-clover-700/85">
+        {maxAttempts > 0
+          ? `失败流水由系统自动补发,最多 ${maxAttempts} 次(退避 1/5/15/60/360 分钟);标为「自动重试已用尽」或「待人工确认」的需要站长介入。`
+          : '自动重试已关闭,失败流水需在此手动重试。'}
+      </p>
       {isLoading ? <Loading /> : (
         <Card className="p-3 sm:p-4">
           <Table
-            head={['ID', '类型', '额度', '额度类型', '状态', '错误', '时间', '操作']}
+            head={['ID', '类型', '额度', '额度类型', '状态', '自动重试', '错误', '时间', '操作']}
             rows={(data?.items ?? []).map((g) => [
               <span key="i" className="text-muted-foreground">{g.id}</span>,
               <span key="t" className="text-clover-800">{typeZh(g.type)} #{g.ref_id}</span>,
               <Quota key="q" value={g.quota} />,
               <Badge key="qt" className={quotaTypeCls(g.quota_type)}>{quotaTypeText(g.quota_type)}</Badge>,
-              <Badge key="s" className={grantStatusCls(g.status)}>{grantStatusText(g.status)}</Badge>,
+              <GrantStateBadge key="s" grant={g} maxAttempts={maxAttempts} />,
+              <RetryProgress key="rc" grant={g} maxAttempts={maxAttempts} />,
               <span key="e" className="block max-w-[12rem] truncate text-xs text-muted-foreground" title={g.error}>{g.error || '-'}</span>,
               <span key="d" className="text-xs text-muted-foreground">{formatDateTime(g.created_at)}</span>,
               <span key="op">
@@ -595,6 +602,58 @@ function GrantsTab() {
         </Card>
       )}
     </div>
+  )
+}
+
+/** pending 卡住多久算「需要人工核对」(与后端 worker 绝不自动处理 pending 的约束配套)。 */
+const STALE_PENDING_MS = 10 * 60 * 1000
+
+/**
+ * 流水状态徽标。除三种原始状态外,额外标出两类必须站长介入的情况:
+ * - pending 停留超 10 分钟:多半是外呼中途进程被杀,new-api 那笔到底有没有到账
+ *   无从判断(发放接口非幂等),系统一律不自动重发,只能人工核对后决定。
+ * - failed 且自动重试预算用尽:补发已连续失败到上限,不再自动尝试。
+ */
+function GrantStateBadge({ grant, maxAttempts }: { grant: GrantRecord; maxAttempts: number }) {
+  if (grant.status === 'pending' && Date.now() - new Date(grant.updated_at).getTime() > STALE_PENDING_MS) {
+    return (
+      <Badge
+        className="border border-gold-300 bg-cream text-gold-600"
+        title="发放中断超过 10 分钟。请先到 new-api 核对该用户额度是否已到账,再决定是否手动补发,系统不会自动重发"
+      >
+        <AlertTriangle size={13} /> 待人工确认
+      </Badge>
+    )
+  }
+  if (grant.status === 'failed' && maxAttempts > 0 && grant.retry_count >= maxAttempts) {
+    return (
+      <Badge
+        className="border border-red-100 bg-red-50 text-red-500"
+        title={`已自动重试 ${grant.retry_count} 次仍失败,不再自动重试,请排查 new-api 后手动重试`}
+      >
+        <AlertTriangle size={13} /> 自动重试已用尽
+      </Badge>
+    )
+  }
+  return <Badge className={grantStatusCls(grant.status)}>{grantStatusText(grant.status)}</Badge>
+}
+
+/** 自动重试进度:仅失败流水有意义,展示已用次数与下次补发时间。 */
+function RetryProgress({ grant, maxAttempts }: { grant: GrantRecord; maxAttempts: number }) {
+  if (grant.status !== 'failed' && !grant.retry_count) {
+    return <span className="text-xs text-muted-foreground">-</span>
+  }
+  if (maxAttempts <= 0) {
+    return <span className="text-xs text-muted-foreground">{grant.retry_count} 次 · 已关闭</span>
+  }
+  const exhausted = grant.retry_count >= maxAttempts
+  return (
+    <span
+      className={cn('whitespace-nowrap text-xs', exhausted ? 'text-red-500' : 'text-muted-foreground')}
+      title={grant.next_retry_at && !exhausted ? `下次自动补发:${formatDateTime(grant.next_retry_at)}` : undefined}
+    >
+      {grant.retry_count}/{maxAttempts} 次
+    </span>
   )
 }
 

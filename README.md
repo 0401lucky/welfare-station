@@ -9,7 +9,7 @@
 - **LinuxDO OAuth 一键登录**,按 `linux_do_id` 自动绑定 new-api 账号(未注册则进入引导页 `/bind`)。
 - **增强签到**:连续签到加成(默认 3/7/30 天 +10%/+25%/+50%),签到即直充到账。
 - **福利活动**:后台建活动(面值/份数/限领/信任等级/时间窗),用户点选即直充领取,并发不超发。
-- **站长后台**:签到配置、活动 CRUD、发放流水(失败可一键重试,幂等)、手动发放、用户管理、仪表盘。
+- **站长后台**:签到配置、活动 CRUD、发放流水(失败自动补发,也可一键手动重试,均幂等)、手动发放、用户管理、仪表盘。
 
 ## 目录结构
 
@@ -76,6 +76,9 @@ cd web && npm run build
 | `WELFARE_ADMIN_LINUXDO_IDS` | 是 | 管理员 LinuxDO id,逗号分隔 |
 | `QUOTA_PER_UNIT` | 否 | 额度换算系数,默认 500000(须与 new-api 一致) |
 | `MAX_GRANT_QUOTA` | 否 | 单次手动发放上限,默认 5000000 |
+| `AUTO_RETRY_ENABLED` | 否 | 失败发放自动重试开关,默认 `true` |
+| `AUTO_RETRY_INTERVAL_SECONDS` | 否 | 自动重试扫描间隔(秒),默认 60,每轮最多 50 条 |
+| `AUTO_RETRY_MAX_ATTEMPTS` | 否 | 单条流水自动重试次数上限,默认 5 |
 | `MOCK_OAUTH` / `MOCK_LINUXDO_ID` / `MOCK_TRUST_LEVEL` | 否 | 仅本地开发 |
 
 ## 发放一致性说明
@@ -83,6 +86,13 @@ cd web && npm run build
 - 任何发放(签到/活动/手动)先落 `w_grants(status=pending)`,成功置 `success`、失败置 `failed`(含 new-api 返回信息)。
 - 发放外呼放在本地事务**提交之后**:宁可"记录成功但额度暂未到"(可重试补发),绝不"额度到了但本地无记录"(避免双发)。
 - 幂等根基:签到 `(user, checkin_date)` 唯一、活动 `(activity, user, seq)` 唯一、流水 `(type, ref_id)` 唯一;重试仅对 `failed` 且 CAS 保护。
+
+### 失败流水的自动重试
+
+- 后台任务每 `AUTO_RETRY_INTERVAL_SECONDS` 秒扫一轮,捞出「`failed` 且重试次数未用尽且已过退避时间」的流水(按 id 升序,每轮最多 50 条),复用与后台按钮同一套 CAS 重试逻辑。
+- 退避表:第 1/2/3/4/5 次失败后分别等 1 分钟、5 分钟、15 分钟、1 小时、6 小时;达到 `AUTO_RETRY_MAX_ATTEMPTS` 后不再自动重试,后台列表标为**自动重试已用尽**,需站长排查 new-api 后手动重试(手动重试会把计数清零,重新获得完整自动重试预算)。
+- **`pending` 状态永不自动重试**:重试会先把流水置 `pending` 再外呼,若进程恰在这中间被杀,无法判断 new-api 那笔是否已执行(`add_quota` / `temporary_quota` 都不是幂等接口,盲目重发会重复到账)。这类流水在后台列表停留超 10 分钟会标为**待人工确认**,请先到 new-api 核对该用户额度再决定是否补发。
+- 进程收到 SIGINT/SIGTERM 时先停重试任务(当前这条补发跑完)、再关 HTTP 服务,避免容器重启把重试砍在半途。
 
 ## 常见问题
 

@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"log"
 	"sync/atomic"
 	"time"
 
@@ -157,6 +158,22 @@ func (g *GrantService) Retry(id int64) error {
 		return err
 	}
 	return g.ExecuteAfterCommit(&gr)
+}
+
+// RetryManual 是后台「重试」按钮走的路径:除执行 Retry 外,还会清空自动重试计数与
+// 退避时间。人工介入通常意味着外部原因已被处理,这条流水理应重新获得完整的自动重试
+// 预算——即便本次补发仍然失败,后台 worker 也会接着从头退避重试。
+func (g *GrantService) RetryManual(id int64) error {
+	err := g.Retry(id)
+	if errors.Is(err, ErrNotFailed) {
+		return err
+	}
+	// 走到这里说明 CAS 已经拿下(无论外呼成功与否),重置预算。
+	if resetErr := g.db.Model(&model.Grant{}).Where("id = ?", id).
+		Updates(map[string]any{"retry_count": 0, "next_retry_at": nil}).Error; resetErr != nil {
+		log.Printf("重置流水 %d 的自动重试计数失败: %v", id, resetErr)
+	}
+	return err
 }
 
 func (g *GrantService) writeResult(id int64, callErr error) error {
