@@ -28,6 +28,10 @@ type CheckinConfig struct {
 	MaxQuota      int64         `json:"max_quota"`
 	StreakBonuses []StreakBonus `json:"streak_bonuses"`
 	MinTrustLevel int           `json:"min_trust_level"` // optional global trust gate (default 0)
+	// AvailableFromMinutes 签到开放时间:当日零点后的分钟数(与 new-api 的
+	// checkin_setting.available_from_minutes 语义一致),按 Timezone 判断。
+	// 0 = 不限制;存量配置没有这个字段,读取时为 0,行为不变。
+	AvailableFromMinutes int `json:"available_from_minutes"`
 }
 
 const CheckinConfigKey = "checkin_config"
@@ -47,7 +51,8 @@ func DefaultCheckinConfig() *CheckinConfig {
 			{Days: 7, Bonus: 0.25},
 			{Days: 30, Bonus: 0.50},
 		},
-		MinTrustLevel: 0,
+		MinTrustLevel:        0,
+		AvailableFromMinutes: 0,
 	}
 }
 
@@ -114,6 +119,10 @@ func SaveCheckinConfig(db *gorm.DB, c *CheckinConfig) error {
 	}
 	if c.StreakBonuses == nil {
 		c.StreakBonuses = DefaultCheckinConfig().StreakBonuses
+	}
+	// 开放时间必须落在一天之内;0 表示不限制。
+	if c.AvailableFromMinutes < 0 || c.AvailableFromMinutes > 1439 {
+		return errors.New("available_from_minutes must be between 0 and 1439")
 	}
 	b, err := json.Marshal(c)
 	if err != nil {

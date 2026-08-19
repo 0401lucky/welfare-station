@@ -147,6 +147,9 @@ function CheckinCard({
   const rules = view?.rules
   const checked = view?.checked_today
   const temporary = rules?.reward_type === 'temporary'
+  // 未到开放时间:按钮置灰,别让用户点了才报错。view 未加载时不提前置灰。
+  const notOpen = view ? view.opened === false : false
+  const openAt = rules?.available_from || '00:00'
 
   return (
     <Card className="p-6">
@@ -177,7 +180,7 @@ function CheckinCard({
         variant="gradient"
         size="lg"
         className="mt-5 w-full"
-        disabled={checked || checkinMut.isPending}
+        disabled={checked || notOpen || checkinMut.isPending}
         onClick={() => checkinMut.mutate()}
       >
         {checkinMut.isPending ? (
@@ -189,8 +192,14 @@ function CheckinCard({
             <Clover size={18} stem={false} petal="#ffffff" petalAlt="#dcf1e2" />
           </span>
         )}
-        {checked ? '今天的叶子已经摘过啦' : '摘一片四叶草 · 签到'}
+        {checked ? '今天的叶子已经摘过啦' : notOpen ? `${openAt} 后才长出叶子` : '摘一片四叶草 · 签到'}
       </Button>
+
+      {notOpen && !checked && (
+        <p className="mt-2 flex items-center justify-center gap-1 text-xs text-muted-foreground">
+          <Timer size={12} /> 今天的叶子 {openAt} 才长出来,再等等
+        </p>
+      )}
 
       {!!me?.newapi_temp_balance && me.newapi_temp_balance > 0 && (
         <div className="mt-4 flex items-center justify-between gap-2 rounded-2xl border border-gold-400 bg-gold-300/30 px-4 py-2.5 text-sm text-gold-600">

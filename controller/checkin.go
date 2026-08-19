@@ -50,6 +50,11 @@ func (a *App) DoCheckin(c *gin.Context) {
 		switch {
 		case errors.Is(err, service.ErrAlreadyCheckedIn):
 			common.Fail(c, http.StatusBadRequest, "今日已签到,明天再来吧")
+		case errors.Is(err, service.ErrCheckedInOnNewAPI):
+			common.Fail(c, http.StatusBadRequest, err.Error())
+		case errors.Is(err, service.ErrCheckinNotOpen):
+			common.Fail(c, http.StatusBadRequest,
+				"今天的叶子 "+service.FormatOpenTime(cfg.AvailableFromMinutes)+" 才长出来,再等等")
 		case errors.Is(err, service.ErrCheckinDisabled):
 			common.Fail(c, http.StatusBadRequest, err.Error())
 		case errors.Is(err, service.ErrTrustLevelTooLow):

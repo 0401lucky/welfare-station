@@ -53,3 +53,19 @@ export function formatExpireIn(unix?: number): string {
   if (unix <= now) return '已失效'
   return `${timeAgo(unix)}后失效`
 }
+
+/** 当日零点后分钟数 → "HH:MM"(后台时间输入框用)。 */
+export function minutesToHHMM(minutes: number): string {
+  const m = Number.isFinite(minutes) ? Math.min(Math.max(Math.floor(minutes), 0), 1439) : 0
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+}
+
+/** "HH:MM" → 当日零点后分钟数。空值或非法输入一律按 0(不限制)处理。 */
+export function hhmmToMinutes(hhmm: string): number {
+  const m = /^(\d{1,2}):(\d{2})$/.exec((hhmm || '').trim())
+  if (!m) return 0
+  const h = +m[1]
+  const min = +m[2]
+  if (h > 23 || min > 59) return 0
+  return h * 60 + min
+}

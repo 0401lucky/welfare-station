@@ -25,6 +25,10 @@ type mockNewAPI struct {
 	successCalls int64
 	tempCalls    int64 // /api/user/temporary_quota 命中次数
 	permCalls    int64 // /api/user/manage 命中次数
+	// checkedInToday 控制 GET /api/user/:id 返回的跨系统签到状态;
+	// omitCheckinFields=true 时完全不返回这两个字段,模拟旧版 new-api。
+	checkedInToday    int64
+	omitCheckinFields int64
 }
 
 func newMockNewAPI() *mockNewAPI {
@@ -44,6 +48,16 @@ func newMockNewAPI() *mockNewAPI {
 	}
 	mux.HandleFunc("/api/user/manage", handle(&m.permCalls))
 	mux.HandleFunc("/api/user/temporary_quota", handle(&m.tempCalls))
+	// GET /api/user/:id —— 跨系统防重签探测用。
+	mux.HandleFunc("/api/user/", func(w http.ResponseWriter, r *http.Request) {
+		data := map[string]any{"id": 42, "username": "alice", "quota": 100, "status": 1}
+		if atomic.LoadInt64(&m.omitCheckinFields) == 0 {
+			data["checked_in_today"] = atomic.LoadInt64(&m.checkedInToday) == 1
+			data["today_checkin_quota_type"] = "temporary"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "message": "", "data": data})
+	})
 	m.srv = httptest.NewServer(mux)
 	return m
 }

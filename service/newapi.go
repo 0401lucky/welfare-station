@@ -23,6 +23,10 @@ type NewAPIUser struct {
 	TemporaryQuotaExpiresAt int64  `json:"temporary_quota_expires_at"` // unix 秒;已过期为 0
 	Status                  int    `json:"status"`
 	Role                    int    `json:"role"`
+	// CheckedInToday / TodayCheckinQuotaType 为 new-api 新增的只读字段,用于跨系统
+	// 防重复签到。旧版 new-api 不返回,JSON 解析后为 false / "",按「未签到」处理。
+	CheckedInToday        bool   `json:"checked_in_today"`
+	TodayCheckinQuotaType string `json:"today_checkin_quota_type"` // permanent | temporary | ""
 }
 
 // newAPIEnvelope is the shared response wrapper `{success, message, data}`.

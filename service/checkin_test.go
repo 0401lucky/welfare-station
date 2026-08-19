@@ -206,3 +206,124 @@ func TestCheckinRewardTypeTemporary(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckinBlockedByNewAPICheckin 验证跨系统防重签:new-api 说当日已签 → 福利站拒绝,
+// 且不产生 w_checkins 与流水;未签 → 正常放行;旧版 new-api 不返回新字段 → 视为未签。
+func TestCheckinBlockedByNewAPICheckin(t *testing.T) {
+	cases := []struct {
+		name       string
+		checkedIn  bool
+		omitFields bool
+		wantErr    error
+	}{
+		{"new-api 已签到则拒绝", true, false, ErrCheckedInOnNewAPI},
+		{"new-api 未签到则放行", false, false, nil},
+		{"旧版 new-api 无新字段视为未签到", true, true, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, mock, db := setupGrantService(t)
+			defer mock.Close()
+			if tc.checkedIn {
+				atomic.StoreInt64(&mock.checkedInToday, 1)
+			}
+			if tc.omitFields {
+				atomic.StoreInt64(&mock.omitCheckinFields, 1)
+			}
+			user := model.User{LinuxDOID: "u", LinuxDOName: "u", TrustLevel: 2, Status: 1, NewapiUserID: int64Ptr(42)}
+			db.Create(&user)
+
+			_, err := DoCheckin(db, svc, fixedConfig(true, 1000), &user)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tc.wantErr)
+			}
+
+			var checkins, grants int64
+			db.Model(&model.Checkin{}).Where("user_id = ?", user.ID).Count(&checkins)
+			db.Model(&model.Grant{}).Where("user_id = ?", user.ID).Count(&grants)
+			wantRows := int64(1)
+			if tc.wantErr != nil {
+				wantRows = 0
+			}
+			if checkins != wantRows || grants != wantRows {
+				t.Fatalf("签到记录=%d 流水=%d, want %d/%d", checkins, grants, wantRows, wantRows)
+			}
+		})
+	}
+}
+
+// TestCheckinOpenTimeBoundary 验证开放时间边界判定与默认不限制。
+func TestCheckinOpenTimeBoundary(t *testing.T) {
+	cfg := fixedConfig(true, 1000)
+	cfg.Timezone = "Asia/Shanghai"
+	cfg.AvailableFromMinutes = 480 // 08:00
+
+	// 以下时刻均为 UTC,对应北京时间 07:59 / 08:00 / 08:01。
+	cases := []struct {
+		utc  time.Time
+		want bool
+		desc string
+	}{
+		{time.Date(2026, 8, 18, 23, 59, 0, 0, time.UTC), false, "开放前一分钟"},
+		{time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC), true, "正好开放"},
+		{time.Date(2026, 8, 19, 0, 1, 0, 0, time.UTC), true, "开放后"},
+	}
+	for _, tc := range cases {
+		if got := CheckinOpened(cfg, tc.utc); got != tc.want {
+			t.Errorf("%s: CheckinOpened = %v, want %v", tc.desc, got, tc.want)
+		}
+	}
+
+	// 默认 0 不限制,哪怕是凌晨。
+	cfg.AvailableFromMinutes = 0
+	if !CheckinOpened(cfg, time.Date(2026, 8, 18, 16, 0, 0, 0, time.UTC)) {
+		t.Error("默认 0 应不限制")
+	}
+
+	// 同一时刻换时区结论不同:UTC 下才 00:00,未到 08:00。
+	cfg.AvailableFromMinutes = 480
+	cfg.Timezone = "UTC"
+	if CheckinOpened(cfg, time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)) {
+		t.Error("UTC 时区下 00:00 不应视为已开放")
+	}
+
+	if got := FormatOpenTime(480); got != "08:00" {
+		t.Errorf("FormatOpenTime(480) = %q", got)
+	}
+}
+
+// TestDoCheckinBeforeOpenTime 验证未到开放时间时签到被拒且无副作用。
+func TestDoCheckinBeforeOpenTime(t *testing.T) {
+	svc, mock, db := setupGrantService(t)
+	defer mock.Close()
+	user := model.User{LinuxDOID: "u", LinuxDOName: "u", TrustLevel: 2, Status: 1, NewapiUserID: int64Ptr(42)}
+	db.Create(&user)
+
+	cfg := fixedConfig(true, 1000)
+	cfg.Timezone = "Asia/Shanghai"
+	// 把开放时间设为当前之后一分钟,保证"未到点"。
+	local := time.Now().In(mustLoad(t, cfg.Timezone))
+	minutes := local.Hour()*60 + local.Minute() + 1
+	if minutes > 1439 {
+		t.Skip("跨日边界,跳过")
+	}
+	cfg.AvailableFromMinutes = minutes
+
+	if _, err := DoCheckin(db, svc, cfg, &user); !errors.Is(err, ErrCheckinNotOpen) {
+		t.Fatalf("err = %v, want ErrCheckinNotOpen", err)
+	}
+	var count int64
+	db.Model(&model.Checkin{}).Count(&count)
+	if count != 0 {
+		t.Fatalf("不应产生签到记录,got %d", count)
+	}
+}
+
+func mustLoad(t *testing.T, tz string) *time.Location {
+	t.Helper()
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		t.Fatalf("load %s: %v", tz, err)
+	}
+	return loc
+}

@@ -86,6 +86,8 @@ export interface CheckinView {
   checked_today: boolean
   streak: number
   calendar: string[]
+  // opened: 按配置时区是否已到签到开放时间(未到点时前端直接置灰按钮)。
+  opened: boolean
   rules: {
     enabled: boolean
     mode: string
@@ -95,6 +97,9 @@ export interface CheckinView {
     max_quota: number
     streak_bonuses: { days: number; bonus: number }[]
     timezone: string
+    // 开放时间:当日零点后分钟数(0 = 不限制)与其 HH:MM 展示形式。
+    available_from_minutes: number
+    available_from: string
   }
 }
 
@@ -183,6 +188,8 @@ export interface CheckinConfig {
   max_quota: number
   streak_bonuses: { days: number; bonus: number }[]
   min_trust_level: number
+  // 签到开放时间:当日零点后分钟数,0 = 全天可签。存量配置无此字段时后端返回 0。
+  available_from_minutes: number
 }
 
 export interface Page<T> {

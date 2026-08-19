@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"time"
@@ -21,6 +22,43 @@ var ErrCheckinDisabled = errors.New("签到功能暂未开放")
 // ErrTrustLevelTooLow is returned when the user's trust level is below the
 // configured global minimum.
 var ErrTrustLevelTooLow = errors.New("当前账号信任等级不足,无法签到")
+
+// ErrCheckedInOnNewAPI 表示用户当日已经在 new-api 内置签到里签过了。
+// 两边奖励打的是同一个额度桶,放行会让用户当天领两份。
+var ErrCheckedInOnNewAPI = errors.New("你今天已在 new-api 签到过了,明天再来福利站摘叶子")
+
+// ErrCheckinNotOpen 表示当日签到尚未到开放时间,具体时间由调用方按配置拼文案。
+var ErrCheckinNotOpen = errors.New("签到尚未开放")
+
+// FormatOpenTime 把「当日零点后分钟数」格式化为 HH:MM。
+func FormatOpenTime(minutes int) string {
+	if minutes < 0 {
+		minutes = 0
+	}
+	return fmt.Sprintf("%02d:%02d", minutes/60, minutes%60)
+}
+
+// CheckinOpened 判断按配置时区的当前时刻是否已到开放时间。0 = 不限制。
+func CheckinOpened(cfg *CheckinConfig, now time.Time) bool {
+	if cfg.AvailableFromMinutes <= 0 {
+		return true
+	}
+	loc, err := time.LoadLocation(cfg.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	local := now.In(loc)
+	return local.Hour()*60+local.Minute() >= cfg.AvailableFromMinutes
+}
+
+// hasCheckedInToday 查询福利站自身当日是否已有签到记录。
+func hasCheckedInToday(db *gorm.DB, userID int64, today string) (bool, error) {
+	var count int64
+	err := db.Model(&model.Checkin{}).
+		Where("user_id = ? AND checkin_date = ?", userID, today).
+		Count(&count).Error
+	return count > 0, err
+}
 
 // TodayStr returns today's "YYYY-MM-DD" in the configured timezone.
 func TodayStr(timezone string, now time.Time) string {
@@ -101,11 +139,32 @@ func DoCheckin(db *gorm.DB, grants *GrantService, cfg *CheckinConfig, user *mode
 	}
 	now := time.Now()
 	today := TodayStr(cfg.Timezone, now)
+	if !CheckinOpened(cfg, now) {
+		return nil, ErrCheckinNotOpen
+	}
 	if user.TrustLevel < cfg.MinTrustLevel {
 		return nil, ErrTrustLevelTooLow
 	}
 	if user.NewapiUserID == nil {
 		return nil, errors.New("请先绑定 new-api 账号")
+	}
+
+	// 跨系统防重复签到。顺序很重要:必须先确认福利站自己当日没签过,再问 new-api。
+	// 限时额度模式下福利站自己的发放同样会在 new-api 留下当日签到记录,顺序颠倒
+	// 会把自己发的那笔误判成 new-api 内置签到。
+	already, err := hasCheckedInToday(db, user.ID, today)
+	if err != nil {
+		return nil, err
+	}
+	if already {
+		return nil, ErrAlreadyCheckedIn
+	}
+	if grants.newapi != nil {
+		// 探测失败(new-api 不可达/旧版无此字段)一律放行:此时发放本身也会失败并进
+		// 入可重试流水,不因为探测不到就把用户挡在门外。
+		if u, err := grants.newapi.GetUser(*user.NewapiUserID); err == nil && u.CheckedInToday {
+			return nil, ErrCheckedInOnNewAPI
+		}
 	}
 
 	streak, err := CalcStreak(db, user.ID, now, cfg.Timezone)
@@ -198,15 +257,18 @@ func GetCheckinView(db *gorm.DB, cfg *CheckinConfig, user *model.User, now time.
 		"checked_today": checkedToday,
 		"streak":        streak,
 		"calendar":      dates,
+		"opened":        CheckinOpened(cfg, now),
 		"rules": map[string]any{
-			"enabled":        cfg.Enabled,
-			"mode":           cfg.Mode,
-			"reward_type":    NormalizeQuotaType(cfg.RewardType),
-			"fixed_quota":    cfg.FixedQuota,
-			"min_quota":      cfg.MinQuota,
-			"max_quota":      cfg.MaxQuota,
-			"streak_bonuses": cfg.StreakBonuses,
-			"timezone":       cfg.Timezone,
+			"enabled":                cfg.Enabled,
+			"mode":                   cfg.Mode,
+			"reward_type":            NormalizeQuotaType(cfg.RewardType),
+			"fixed_quota":            cfg.FixedQuota,
+			"min_quota":              cfg.MinQuota,
+			"max_quota":              cfg.MaxQuota,
+			"streak_bonuses":         cfg.StreakBonuses,
+			"timezone":               cfg.Timezone,
+			"available_from_minutes": cfg.AvailableFromMinutes,
+			"available_from":         FormatOpenTime(cfg.AvailableFromMinutes),
 		},
 	}, nil
 }

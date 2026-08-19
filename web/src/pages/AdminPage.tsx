@@ -12,7 +12,7 @@ import { Badge, Button, Card, ConfirmDialog, Input, MoneyInput, Progress, Select
 import { toast } from '@/components/Toast'
 import { api, ActivityClaim, AdminActivity, CheckinConfig, Dashboard, GrantRecord, Page, QuotaType, User } from '@/lib/api'
 import { useMe, useSiteInfo } from '@/hooks/useMe'
-import { formatDateTime, formatUSD } from '@/lib/format'
+import { formatDateTime, formatUSD, hhmmToMinutes, minutesToHHMM } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 type Tab = 'dashboard' | 'config' | 'activities' | 'grants' | 'users' | 'manual'
@@ -320,9 +320,21 @@ function ConfigTab() {
             }}
           />
         </div>
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">全局最低信任等级(0-4)</label>
-          <Input type="number" min={0} max={4} value={localCfg?.min_trust_level} onChange={(e) => set({ min_trust_level: +e.target.value })} />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">全局最低信任等级(0-4)</label>
+            <Input type="number" min={0} max={4} value={localCfg?.min_trust_level} onChange={(e) => set({ min_trust_level: +e.target.value })} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">
+              每日开放时间(按上方时区,留空 = 00:00 全天可签)
+            </label>
+            <Input
+              type="time"
+              value={minutesToHHMM(localCfg?.available_from_minutes ?? 0)}
+              onChange={(e) => set({ available_from_minutes: hhmmToMinutes(e.target.value) })}
+            />
+          </div>
         </div>
         <Button variant="gradient" disabled={!localCfg || save.isPending} onClick={() => localCfg && save.mutate(localCfg)}>
           {save.isPending ? <Spinner size={18} /> : '保存配置'}
