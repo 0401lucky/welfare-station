@@ -108,6 +108,56 @@ type Setting struct {
 
 func (Setting) TableName() string { return "w_settings" }
 
+// GameSession 是一局进行中的游戏(w_game_sessions)。
+// uk_user_game 保证一个用户同一游戏同时只有一局;开新局前先删旧局。
+type GameSession struct {
+	ID       string `gorm:"type:char(32);primaryKey" json:"id"`
+	UserID   int64  `gorm:"not null;uniqueIndex:uk_user_game,priority:1" json:"user_id"`
+	GameType string `gorm:"type:varchar(16);not null;uniqueIndex:uk_user_game,priority:2" json:"game_type"`
+	Seed     string `gorm:"type:char(32);not null" json:"seed"`
+	// Payload 存 checkpoint 快照 JSON:{grid, score, moves_applied, moves_submitted}。
+	// 空串表示尚无 checkpoint,回放从种子初始棋盘开始。
+	Payload   string    `gorm:"type:text" json:"payload"`
+	StartedAt time.Time `gorm:"not null" json:"started_at"`
+	ExpiresAt time.Time `gorm:"not null;index" json:"expires_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (GameSession) TableName() string { return "w_game_sessions" }
+
+// GamePlay 是一局已结算的对局记录(w_game_plays),同时是 w_grants 的 ref。
+// uk_session 是结算幂等的根基:同一 session 只能结算一次。
+type GamePlay struct {
+	ID          int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID      int64  `gorm:"not null;index:idx_user_date,priority:1" json:"user_id"`
+	GameType    string `gorm:"type:varchar(16);not null" json:"game_type"`
+	SessionID   string `gorm:"type:char(32);not null;uniqueIndex:uk_session" json:"session_id"`
+	PlayDate    string `gorm:"type:char(10);not null;index:idx_user_date,priority:2" json:"play_date"` // 配置时区的 YYYY-MM-DD
+	Score       int64  `gorm:"not null" json:"score"`
+	HighestTile int    `gorm:"not null" json:"highest_tile"`
+	Moves       int    `gorm:"not null" json:"moves"`
+	Quota       int64  `gorm:"not null;default:0" json:"quota"` // 实发额度,0 = 未发放
+	QuotaType   string `gorm:"type:varchar(16);not null;default:permanent" json:"quota_type"`
+	// Reason 记录本次为何发/未发,供前端出文案与后台排查:
+	// ok | below_tier | over_daily_limit | over_user_cap | over_site_budget | disabled
+	Reason    string    `gorm:"type:varchar(32);not null" json:"reason"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (GamePlay) TableName() string { return "w_game_plays" }
+
+// DailyBudget 记录某日某个池已发放的额度(w_daily_budgets)。
+// 预算上限存配置不存表,这里只记 used,改配置立即生效。
+// Scope: total | game | checkin | activity
+type DailyBudget struct {
+	Date      string    `gorm:"type:char(10);primaryKey" json:"date"`
+	Scope     string    `gorm:"type:varchar(16);primaryKey" json:"scope"`
+	Used      int64     `gorm:"not null;default:0" json:"used"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (DailyBudget) TableName() string { return "w_daily_budgets" }
+
 // AllModels lists every AutoMigrate target in dependency order.
 func AllModels() []any {
 	return []any{
@@ -117,5 +167,8 @@ func AllModels() []any {
 		&Claim{},
 		&Grant{},
 		&Setting{},
+		&GameSession{},
+		&GamePlay{},
+		&DailyBudget{},
 	}
 }

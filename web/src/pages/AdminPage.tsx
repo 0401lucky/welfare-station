@@ -3,23 +3,24 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle, BarChart3, CheckCircle2, CircleDollarSign, Clock, FileText,
-  Gift, LayoutDashboard, RefreshCw, Settings2, Sprout, Users, X,
+  Gamepad2, Gift, LayoutDashboard, RefreshCw, Settings2, Sprout, Trash2, Users, X,
 } from 'lucide-react'
 import Header from '@/components/Header'
 import Quota from '@/components/Quota'
 import { Clover } from '@/components/Clover'
 import { Badge, Button, Card, ConfirmDialog, Input, MoneyInput, Progress, Select, Spinner, Table, Textarea } from '@/components/ui'
 import { toast } from '@/components/Toast'
-import { api, ActivityClaim, AdminActivity, CheckinConfig, Dashboard, GrantPage, GrantRecord, QuotaType, User } from '@/lib/api'
+import { api, ActivityClaim, AdminActivity, BudgetRule, CheckinConfig, Dashboard, GameConfig, GameRules, GameTier, GrantPage, GrantRecord, QuotaType, User } from '@/lib/api'
 import { useMe, useSiteInfo } from '@/hooks/useMe'
 import { formatDateTime, formatUSD, hhmmToMinutes, minutesToHHMM } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-type Tab = 'dashboard' | 'config' | 'activities' | 'grants' | 'users' | 'manual'
+type Tab = 'dashboard' | 'config' | 'game' | 'activities' | 'grants' | 'users' | 'manual'
 
 const tabs: { id: Tab; label: string; icon: any }[] = [
   { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard },
   { id: 'config', label: '签到配置', icon: Settings2 },
+  { id: 'game', label: '游戏设置', icon: Gamepad2 },
   { id: 'activities', label: '活动管理', icon: Gift },
   { id: 'grants', label: '发放流水', icon: FileText },
   { id: 'users', label: '用户管理', icon: Users },
@@ -48,6 +49,42 @@ function Loading() {
 function usePerUnit() {
   const { data: site } = useSiteInfo()
   return site?.quota_per_unit ?? 500000
+}
+
+/** 目前只有 2048 一个游戏;加第二个游戏时这里扩成列表即可,其余结构不用动。 */
+const GAME_2048 = '2048'
+
+/** 配置里缺 2048 这一项时的兜底(后端首次落库前/字段缺失时),避免表单读到 undefined。 */
+const DEFAULT_GAME_RULES: GameRules = {
+  enabled: false,
+  reward_type: 'permanent',
+  daily_claim_limit: 3,
+  user_daily_cap: 150000,
+  cooldown_seconds: 5,
+  tiers: [],
+}
+
+/** 阶梯只能选 2 的幂(后端 SaveGameConfig 会校验),这里直接给成下拉避免手输出错。 */
+const TILE_OPTIONS = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+/**
+ * 四个预算池的展示顺序与文案,与后端 service.BudgetScopes 对齐。
+ * wired = 是否真的接入了发放链路:checkin / activity 目前只有配置没有接入,
+ * 开了也不会拦任何东西,所以开关禁用并如实标注(后端 SaveGameConfig 同样会拒绝启用)。
+ */
+const BUDGET_SCOPES: { scope: string; label: string; note?: string; wired: boolean }[] = [
+  { scope: 'total', label: '全站总池', note: '当前仅小游戏计入', wired: true },
+  { scope: 'game', label: '小游戏', wired: true },
+  { scope: 'checkin', label: '签到', note: '尚未接入,开了也不会生效', wired: false },
+  { scope: 'activity', label: '活动', note: '尚未接入,开了也不会生效', wired: false },
+]
+
+/** GET /api/admin/budgets 的响应;这个形状只有后台用到,不进 lib/api.ts。 */
+interface BudgetsView {
+  timezone: string
+  today: string
+  scopes: { scope: string; enabled: boolean; daily: number; used_today: number; remaining: number }[]
+  history: { date: string; used: Record<string, number> }[]
 }
 
 export default function AdminPage() {
@@ -155,6 +192,7 @@ export default function AdminPage() {
           <section className="min-w-0 flex-1">
             {tab === 'dashboard' && <DashboardTab />}
             {tab === 'config' && <ConfigTab />}
+            {tab === 'game' && <GameTab />}
             {tab === 'activities' && <ActivitiesTab />}
             {tab === 'grants' && <GrantsTab />}
             {tab === 'users' && <UsersTab />}
@@ -343,6 +381,250 @@ function ConfigTab() {
       <p className="text-xs text-muted-foreground">
         额度按 $1 = {perUnit.toLocaleString('en-US')} quota 换算,该系数须与 new-api 实例保持一致(设计文档要求)。
       </p>
+    </div>
+  )
+}
+
+/** 后台「游戏设置」:游戏规则 + 两级每日预算池。与 ConfigTab 同构的草稿模式。 */
+function GameTab() {
+  const qc = useQueryClient()
+  const perUnit = usePerUnit()
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin-game-config'],
+    queryFn: () => api.get<GameConfig>('/api/admin/game-config'),
+  })
+  const budgets = useQuery({
+    queryKey: ['admin-budgets'],
+    queryFn: () => api.get<BudgetsView>('/api/admin/budgets?days=7'),
+  })
+  const [cfg, setCfg] = useState<GameConfig | null>(null)
+  const [deletingTier, setDeletingTier] = useState<number | null>(null)
+
+  const save = useMutation({
+    mutationFn: (c: GameConfig) => api.put('/api/admin/game-config', c),
+    onSuccess: () => {
+      toast.success('游戏设置已保存')
+      qc.invalidateQueries({ queryKey: ['admin-game-config'] })
+      qc.invalidateQueries({ queryKey: ['admin-budgets'] })
+      // 前台游戏页的规则摘要也要跟着刷新
+      qc.invalidateQueries({ queryKey: ['games'] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const localCfg = cfg ?? data
+  const rules = localCfg?.games?.[GAME_2048]
+
+  const setRules = (patch: Partial<GameRules>) =>
+    setCfg((p) => {
+      const base = (p ?? data)!
+      const prev = base.games?.[GAME_2048] ?? DEFAULT_GAME_RULES
+      return { ...base, games: { ...base.games, [GAME_2048]: { ...prev, ...patch } } }
+    })
+
+  const setBudget = (scope: string, patch: Partial<BudgetRule>) =>
+    setCfg((p) => {
+      const base = (p ?? data)!
+      const prev = base.budgets?.[scope] ?? { enabled: false, daily: 0 }
+      return { ...base, budgets: { ...base.budgets, [scope]: { ...prev, ...patch } } }
+    })
+
+  const setTier = (idx: number, patch: Partial<GameTier>) =>
+    setRules({ tiers: (rules?.tiers ?? []).map((t, i) => (i === idx ? { ...t, ...patch } : t)) })
+
+  const addTier = () => {
+    const tiers = rules?.tiers ?? []
+    // 默认接在最高档之后翻一倍，站长通常就是想加下一档
+    const next = tiers.length ? Math.min(tiers[tiers.length - 1].tile * 2, 65536) : 512
+    setRules({ tiers: [...tiers, { tile: next, quota: 0 }] })
+  }
+
+  if (isLoading) return <Loading />
+
+  return (
+    <div className="space-y-4">
+      <TabTitle icon={Gamepad2}>游戏设置</TabTitle>
+
+      <Card className="space-y-4 p-5">
+        <h3 className="text-sm font-bold text-clover-800">2048</h3>
+
+        <label className="flex items-center justify-between rounded-2xl border border-clover-100 bg-clover-50/70 px-4 py-3">
+          <span className="flex items-center gap-2 font-medium text-clover-800">
+            <Gamepad2 size={18} className="text-clover-500" /> 启用 2048
+          </span>
+          <input
+            type="checkbox"
+            checked={!!rules?.enabled}
+            onChange={(e) => setRules({ enabled: e.target.checked })}
+            className="h-5 w-5 accent-clover-500"
+          />
+        </label>
+
+        <div>
+          <label className="mb-1.5 block text-xs text-muted-foreground">奖励类型</label>
+          <div className="flex gap-2">
+            {([
+              ['permanent', '永久余额'],
+              ['temporary', '今日限时额度'],
+            ] as [QuotaType, string][]).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setRules({ reward_type: value })}
+                className={cn(
+                  'rounded-full border px-4 py-1.5 text-sm transition-colors',
+                  (rules?.reward_type ?? 'permanent') === value
+                    ? 'border-transparent bg-clover-gradient text-white shadow-leaf-sm'
+                    : 'border-clover-100 bg-white/80 text-clover-700 hover:bg-clover-50',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">每日领奖次数</label>
+            <Input
+              type="number"
+              value={String(rules?.daily_claim_limit ?? 0)}
+              onChange={(e) => setRules({ daily_claim_limit: +e.target.value })}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">只有实际发出额度的结算才计次</p>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">每人每日额度上限($)</label>
+            <MoneyInput
+              perUnit={perUnit}
+              value={rules?.user_daily_cap}
+              onChange={(q) => setRules({ user_daily_cap: q })}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">结算后冷却(秒)</label>
+            <Input
+              type="number"
+              value={String(rules?.cooldown_seconds ?? 0)}
+              onChange={(e) => setRules({ cooldown_seconds: +e.target.value })}
+            />
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label className="text-xs text-muted-foreground">奖励阶梯(按本局最高方块)</label>
+            <Button size="sm" variant="outline" onClick={addTier}>+ 加一档</Button>
+          </div>
+          <p className="mb-2 text-xs text-muted-foreground">
+            同一局<span className="font-medium text-clover-700">只发命中的最高档</span>,不累加下面的档位。
+          </p>
+          <div className="space-y-2">
+            {(rules?.tiers ?? []).map((t, i) => (
+              <div key={i} className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-center">
+                <Select value={String(t.tile)} onChange={(e) => setTier(i, { tile: +e.target.value })}>
+                  {TILE_OPTIONS.map((v) => (
+                    <option key={v} value={v}>合成 {v}</option>
+                  ))}
+                </Select>
+                <MoneyInput perUnit={perUnit} value={t.quota} onChange={(q) => setTier(i, { quota: q })} />
+                <Button size="sm" variant="danger" onClick={() => setDeletingTier(i)}>
+                  <Trash2 size={14} /> 删除
+                </Button>
+              </div>
+            ))}
+            {(rules?.tiers ?? []).length === 0 && (
+              <p className="rounded-2xl border border-clover-100 bg-muted px-4 py-3 text-xs text-muted-foreground">
+                没有任何档位 = 游戏可玩但永远不发额度。
+              </p>
+            )}
+          </div>
+        </div>
+
+        <Button variant="gradient" disabled={!localCfg || save.isPending} onClick={() => localCfg && save.mutate(localCfg)}>
+          {save.isPending ? <Spinner size={18} /> : '保存设置'}
+        </Button>
+      </Card>
+
+      <Card className="space-y-4 p-5">
+        <h3 className="text-sm font-bold text-clover-800">全站每日预算</h3>
+        <p className="text-xs text-muted-foreground">
+          发放前先扣来源池、再扣总池,<span className="font-medium text-clover-700">两者都够才发</span>;
+          不足时整笔不发(不做部分发放),且游戏照常可玩。按上方时区跨日重置。
+        </p>
+        <div className="space-y-3">
+          {BUDGET_SCOPES.map(({ scope, label, note, wired }) => {
+            const rule = localCfg?.budgets?.[scope] ?? { enabled: false, daily: 0 }
+            const view = budgets.data?.scopes?.find((s) => s.scope === scope)
+            const used = view?.used_today ?? 0
+            // Progress 取 0~1 小数;未开启或预算为 0 时不画进度,避免除零与满格误导
+            const ratio = rule.enabled && rule.daily > 0 ? Math.min(1, used / rule.daily) : 0
+            return (
+              <div key={scope} className={cn(
+                'rounded-2xl border border-clover-100 px-4 py-3',
+                wired ? 'bg-clover-50/50' : 'bg-muted',
+              )}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className={cn(
+                    'flex min-w-0 items-center gap-2 font-medium',
+                    wired ? 'text-clover-800' : 'text-muted-foreground',
+                  )}>
+                    {label}
+                    {note && <span className="text-xs font-normal text-muted-foreground">· {note}</span>}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={rule.enabled}
+                    disabled={!wired}
+                    onChange={(e) => setBudget(scope, { enabled: e.target.checked })}
+                    className="h-5 w-5 shrink-0 accent-clover-500 disabled:cursor-not-allowed disabled:opacity-40"
+                  />
+                </div>
+                {wired ? (
+                  <div className="mt-2.5 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] sm:items-center">
+                    <MoneyInput
+                      perUnit={perUnit}
+                      value={rule.daily}
+                      onChange={(q) => setBudget(scope, { daily: q })}
+                      disabled={!rule.enabled}
+                    />
+                    {rule.enabled ? (
+                      <div className="flex items-center gap-2">
+                        <Progress value={ratio} className="flex-1" />
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          已用 {formatUSD(used, perUnit)} / {formatUSD(rule.daily, perUnit)} · 剩余{' '}
+                          {formatUSD(Math.max(0, rule.daily - used), perUnit)}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">未开启,该来源不受限额约束</span>
+                    )}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    该来源的发放链路还没接预算校验,先占位。开启入口已锁,避免出现「开了却不生效」的假象。
+                  </p>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </Card>
+
+      <ConfirmDialog
+        open={deletingTier !== null}
+        title="删除这一档奖励?"
+        description="删除后本局达到该方块将按下一个更低的档位发放,或不发放。"
+        confirmText="删除"
+        onCancel={() => setDeletingTier(null)}
+        onConfirm={() => {
+          if (deletingTier !== null) {
+            setRules({ tiers: (rules?.tiers ?? []).filter((_, i) => i !== deletingTier) })
+          }
+          setDeletingTier(null)
+        }}
+      />
     </div>
   )
 }

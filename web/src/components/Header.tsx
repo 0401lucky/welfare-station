@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { LogIn, ScrollText, Settings2, Sprout, Timer } from 'lucide-react'
+import { LogIn, Gamepad2, ScrollText, Settings2, Sprout, Timer } from 'lucide-react'
 import { useMe, useSiteInfo } from '@/hooks/useMe'
 import { api, User } from '@/lib/api'
 import { Clover } from '@/components/Clover'
@@ -79,6 +79,7 @@ export default function Header() {
 
         <nav className="flex items-center gap-1">
           {navLink('/', '小站', <Sprout size={16} />)}
+          {navLink('/game', '小游戏', <Gamepad2 size={16} />)}
           {navLink('/records', '我的记录', <ScrollText size={16} />)}
           {me?.user.is_admin && navLink('/admin', '后台', <Settings2 size={16} />)}
         </nav>

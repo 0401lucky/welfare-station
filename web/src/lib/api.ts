@@ -1,5 +1,7 @@
 // Thin typed API client. Every backend response uses the envelope
 // {success, message, data}; failures throw ApiError so callers can react.
+import type { Game2048Direction } from '@/lib/game2048'
+
 export interface ApiEnvelope<T = unknown> {
   success: boolean
   message: string
@@ -217,4 +219,141 @@ export interface Dashboard {
   failed_grants: number
   pending_grants: number
   quota_per_unit: number
+}
+
+// ---- 小游戏与游戏额度体系(game_config / /api/games/*)----
+
+/** 一档奖励:本局最高方块达到 tile 即可拿 quota 额度(整数口径)。 */
+export interface GameTier {
+  tile: number
+  quota: number
+}
+
+/** 单个游戏的规则,与具体游戏解耦;后端 tiers 已按 tile 升序归一化。 */
+export interface GameRules {
+  enabled: boolean
+  reward_type: QuotaType
+  daily_claim_limit: number
+  user_daily_cap: number
+  cooldown_seconds: number
+  tiers: GameTier[]
+}
+
+/** 一个每日预算池的开关与额度;用量记在后端,上限只存配置。 */
+export interface BudgetRule {
+  enabled: boolean
+  daily: number
+}
+
+/** 后台游戏设置:games 的 key 是 game_type,budgets 的 key 是 total|game|checkin|activity。 */
+export interface GameConfig {
+  timezone: string
+  games: Record<string, GameRules>
+  budgets: Record<string, BudgetRule>
+}
+
+/** 本次结算发/未发额度的原因,前端据此出文案。 */
+export type GameReason =
+  | 'ok'
+  | 'below_tier'
+  | 'over_daily_limit'
+  | 'over_user_cap'
+  | 'over_site_budget'
+  | 'disabled'
+
+/** 一局已结算的对局记录。quota=0 表示未发放,原因见 reason。 */
+export interface GamePlay {
+  id: number
+  user_id: number
+  game_type: string
+  session_id: string
+  play_date: string
+  score: number
+  highest_tile: number
+  moves: number
+  quota: number
+  quota_type: QuotaType
+  reason: GameReason
+  created_at: string
+}
+
+/**
+ * 进行中的会话(断线恢复用)。grid 是服务端 checkpoint 快照,
+ * base_score / base_moves 是该快照对应的累计分数与累计有效步数;
+ * 前端把本地未提交的 moves 从这里往后重放即可还原棋盘。
+ */
+export interface GameActiveSession {
+  session_id: string
+  seed: string
+  grid: number[][]
+  base_score: number
+  base_moves: number
+  expires_at: string
+}
+
+export interface GameStatus {
+  active_session: GameActiveSession | null
+  today_claims: number
+  daily_claim_limit: number
+  today_quota: number
+  user_daily_cap: number
+  cooldown_remaining: number
+  budget_exhausted: boolean
+  recent_plays: GamePlay[]
+}
+
+/** GET /api/games 的列表项。 */
+export interface GameSummary {
+  game_type: string
+  enabled: boolean
+  rules_summary: GameRules
+  today_claims: number
+  daily_claim_limit: number
+  today_quota: number
+  user_daily_cap: number
+  budget_exhausted: boolean
+}
+
+export interface GameStartResp {
+  session_id: string
+  seed: string
+  initial_grid: number[][]
+  base_score: number
+  base_moves: number
+  expires_at: string
+}
+
+/**
+ * checkpoint 与 submit 的请求体。
+ *
+ * base_moves 是乐观令牌:前端认为服务端 checkpoint 当前所处的累计有效步数
+ * (开局取 /start 的 base_moves,之后取最近一次 checkpoint 返回的 moves_applied)。
+ * 服务端校验它与自己的 checkpoint 一致才受理,不等即拒绝 —— 挡的是同一段 moves
+ * 被重放两次(比如上一次 checkpoint 其实成功了、只是响应没回来)。
+ *
+ * 请求体里没有、也不会有任何分数或额度字段:分数一律由服务端回放算出。
+ */
+export interface GameMovesReq {
+  session_id: string
+  base_moves: number
+  moves: Game2048Direction[]
+}
+
+export interface GameCheckpointResp {
+  grid: number[][]
+  score: number
+  moves_applied: number
+  expires_at: string
+}
+
+/** 结算结果。分数与额度全部由服务端回放算出,前端从不提交分数。 */
+export interface GameSubmitResp {
+  score: number
+  highest_tile: number
+  moves: number
+  quota: number
+  quota_type: QuotaType
+  reason: GameReason
+  grant_status: 'success' | 'failed' | 'none'
+  tier_hit: GameTier | null
 }

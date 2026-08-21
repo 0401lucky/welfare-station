@@ -423,3 +423,89 @@ func (a *App) AdminToggleUserStatus(c *gin.Context) {
 	}
 	common.Ok(c, gin.H{"id": id, "status": body.Status})
 }
+
+// GET/PUT /api/admin/game-config — 读/写游戏注册表与预算池配置(R4.2 / R4.3)。
+func (a *App) AdminGetGameConfig(c *gin.Context) {
+	cfg, err := service.GetGameConfig(a.DB)
+	if err != nil {
+		common.InternalError(c, "读取游戏配置失败")
+		return
+	}
+	common.Ok(c, cfg)
+}
+
+func (a *App) AdminPutGameConfig(c *gin.Context) {
+	var body service.GameConfig
+	if err := c.ShouldBindJSON(&body); err != nil {
+		common.BadRequest(c, "JSON 格式错误")
+		return
+	}
+	// 校验与归一化(档位按 tile 升序、时区回落、reward_type 兜底)全在
+	// SaveGameConfig 里就地完成,这里不重复实现,失败信息原样透出给站长。
+	if err := service.SaveGameConfig(a.DB, &body, a.Config.MaxGrantQuota); err != nil {
+		common.BadRequest(c, err.Error())
+		return
+	}
+	// 回的是归一化之后的 body,前端拿到的就是落库的那一份。
+	common.Ok(c, body)
+}
+
+// budgetScopeView 是后台预算页里一个池的展示数据:上限来自配置,用量来自
+// w_daily_budgets,两边在这里合并。
+type budgetScopeView struct {
+	Scope     string `json:"scope"`
+	Enabled   bool   `json:"enabled"`
+	Daily     int64  `json:"daily"`
+	UsedToday int64  `json:"used_today"`
+	Remaining int64  `json:"remaining"`
+}
+
+// GET /api/admin/budgets?days=7 — 各池今日用量 + 近 N 日曲线(R4.4)。
+func (a *App) AdminBudgets(c *gin.Context) {
+	cfg, err := service.GetGameConfig(a.DB)
+	if err != nil {
+		common.InternalError(c, "读取游戏配置失败")
+		return
+	}
+	// days 非法(非数字或小于 1)一律回落 7;上界由 BudgetUsage 自己夹到 90。
+	days, convErr := strconv.Atoi(c.DefaultQuery("days", "7"))
+	if convErr != nil || days < 1 {
+		days = 7
+	}
+	now := time.Now()
+	history, err := service.BudgetUsage(a.DB, cfg.Timezone, days, now)
+	if err != nil {
+		common.InternalError(c, "读取预算用量失败")
+		return
+	}
+	// history 按日期升序,最后一项即今日。
+	usedToday := map[string]int64{}
+	if len(history) > 0 {
+		usedToday = history[len(history)-1].Used
+	}
+
+	scopes := make([]budgetScopeView, 0, len(service.BudgetScopes))
+	for _, scope := range service.BudgetScopes {
+		rule := cfg.Budgets[scope] // 配置里缺这个池就取零值:未开启、预算 0
+		used := usedToday[scope]
+		// 未开启的池不报剩余额度(前端按「未开启」渲染);已开启时剩余不给负数。
+		var remaining int64
+		if rule.Enabled && rule.Daily > used {
+			remaining = rule.Daily - used
+		}
+		scopes = append(scopes, budgetScopeView{
+			Scope:     scope,
+			Enabled:   rule.Enabled,
+			Daily:     rule.Daily,
+			UsedToday: used,
+			Remaining: remaining,
+		})
+	}
+
+	common.Ok(c, gin.H{
+		"timezone": cfg.Timezone,
+		"today":    service.TodayStr(cfg.Timezone, now),
+		"scopes":   scopes,
+		"history":  history,
+	})
+}

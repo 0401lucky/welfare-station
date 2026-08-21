@@ -1,0 +1,62 @@
+[
+  {
+    "name": "short-cycle",
+    "seed": "0123456789abcdef0123456789abcdef",
+    "moves": ["up","right","down","left","up","right","down","left","up","right","down","left","up","right","down","left","up","right","down","left","up","right","down","left","up","right","down","left","up","right","down","left","up","right","down","left","up","right","down","left"],
+    "expected": {
+      "grid": [
+        [2,0,0,0,0],
+        [2,0,0,2,0],
+        [4,0,0,0,0],
+        [32,4,32,0,0],
+        [4,4,2,0,0]
+      ],
+      "score": 264,
+      "highest_tile": 32,
+      "moves_submitted": 40,
+      "moves_applied": 40,
+      "won": false,
+      "game_over": false
+    }
+  },
+  {
+    "name": "long-run-260",
+    "seed": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+    "moves": ["right","up","up","left","up","left","up","up","down","up","down","up","down","down","up","left","left","up","up","up","down","down","right","down","left","right","right","left","left","up","right","down","right","right","right","up","up","up","right","down","up","left","left","right","up","left","down","right","down","right","left","down","up","left","left","up","down","up","right","down","up","down","up","down","down","up","up","up","down","up","up","up","down","right","left","up","down","up","right","right","left","left","up","left","up","left","left","up","up","left","up","down","right","up","up","right","right","left","up","up","down","right","left","down","left","down","left","up","up","right","up","up","right","down","down","up","down","up","down","up","down","right","left","right","left","down","right","left","right","up","down","up","right","up","up","right","left","left","left","down","down","down","up","down","up","down","down","right","left","left","left","up","left","right","down","up","up","right","left","down","down","down","down","left","down","down","up","right","left","down","left","right","right","left","right","down","right","up","up","right","left","right","up","right","left","right","right","right","down","left","right","right","up","right","up","down","down","right","left","down","down","up","left","down","right","right","left","right","left","down","up","up","up","right","left","left","left","up","left","up","right","right","right","down","up","right","up","up","left","left","right","down","up","down","down","right","up","down","down","down","left","down","down","left","up","down","right","right","down","down","down","up","left","up","right","right","right","down","down","down"],
+    "expected": {
+      "grid": [
+        [0,0,0,0,0],
+        [0,0,4,4,128],
+        [0,0,2,256,32],
+        [0,16,16,4,8],
+        [2,4,2,8,4]
+      ],
+      "score": 2744,
+      "highest_tile": 256,
+      "moves_submitted": 260,
+      "moves_applied": 220,
+      "won": false,
+      "game_over": false
+    }
+  },
+  {
+    "name": "invalid-heavy",
+    "seed": "ffffffffffffffff00000000deadbeef",
+    "moves": ["up","up","up","up","right","right","right","right","down","down","down","down","left","left","left","left","up","up","up","up","right","right","right","right","down","down","down","down","left","left","left","left","up","up","up","up","right","right","right","right","down","down","down","down","left","left","left","left","up","up","up","up","right","right","right","right","down","down","down","down","left","left","left","left","up","up","up","up","right","right","right","right","down","down","down","down","left","left","left","left","up","up","up","up","right","right","right","right","down","down","down","down","left","left","left","left","up","up","up","up","right","right","right","right","down","down","down","down","left","left","left","left","up","up","up","up","right","right","right","right","down","down","down","down","left","left","left","left","up","up","up","up","right","right","right","right","down","down","down","down","left","left","left","left","up","up","up","up","right","right","right","right","down","down","down","down","left","left","left","left","up","up","up","up","right","right","right","right","down","down","down","down","left","left","left","left","up","up","up","up","right","right","right","right","down","down","down","down","left","left","left","left","up","up","up","up","right","right","right","right","down","down","down","down","left","left","left","left","up","up","up","up","right","right","right","right","down","down","down","down","left","left","left","left","up","up","up","up","right","right","right","right","down","down","down","down","left","left","left","left","up","up","up","up","right","right","right","right","down","down","down","down","left","left","left","left"],
+    "expected": {
+      "grid": [
+        [4,8,0,0,0],
+        [32,8,2,0,0],
+        [8,16,0,0,0],
+        [4,2,256,4,2],
+        [2,16,64,2,0]
+      ],
+      "score": 2308,
+      "highest_tile": 256,
+      "moves_submitted": 256,
+      "moves_applied": 191,
+      "won": false,
+      "game_over": false
+    }
+  }
+]
