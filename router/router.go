@@ -23,8 +23,8 @@ func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
 			"quota_per_unit": cfg.QuotaPerUnit,
 			// 只读:供前端把「单次发放上限」换算成美元提示,校验仍以后端为准
 			"max_grant_quota": cfg.MaxGrantQuota,
-			"newapi_url":     cfg.NewAPIPublicURL, // 为空时前端不渲染跳转入口
-			"notice":         "", // notice is editable later via admin settings
+			"newapi_url":      cfg.NewAPIPublicURL, // 为空时前端不渲染跳转入口
+			"notice":          "",                  // notice is editable later via admin settings
 		})
 	})
 	api.GET("/oauth/linuxdo", app.OAuthLogin)
@@ -40,7 +40,7 @@ func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
 	user.POST("/checkin", middleware.RateLimitUser(), app.DoCheckin)
 
 	// ---- M6: activities (public list + user claim) ----
-	api.GET("/activities", app.ListActivities)
+	api.GET("/activities", app.Auth.OptionalUser(), app.ListActivities)
 	user.POST("/activities/:id/claim", middleware.RateLimitUser(), app.ClaimActivity)
 
 	// ---- M7: user grants (my records) ----

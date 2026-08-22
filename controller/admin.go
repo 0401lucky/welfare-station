@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"welfare/common"
@@ -12,6 +13,30 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// AdminGrantUser 是后台流水中关联的福利站用户投影。
+// 流水仍保留原有顶层 user_id/newapi_user_id 字段，user 仅补充可读的用户资料。
+type AdminGrantUser struct {
+	ID             int64  `json:"id"`
+	LinuxDOID      string `json:"linux_do_id"`
+	LinuxDOName    string `json:"linux_do_name"`
+	DisplayName    string `json:"display_name"`
+	NewapiUserID   *int64 `json:"newapi_user_id"`
+	NewapiUsername string `json:"newapi_username,omitempty"`
+}
+
+// AdminGrantItem 保持 model.Grant 的兼容字段，并附带关联用户。
+type AdminGrantItem struct {
+	model.Grant
+	User *AdminGrantUser `json:"user,omitempty"`
+}
+
+// escapeLikeLiteral 将搜索词中的 LIKE 通配符按字面量处理。
+func escapeLikeLiteral(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\`+`\`)
+	value = strings.ReplaceAll(value, `%`, `\%`)
+	return strings.ReplaceAll(value, `_`, `\_`)
+}
 
 // GET /api/admin/dashboard — basic stats (R4.6).
 func (a *App) AdminDashboard(c *gin.Context) {
@@ -266,6 +291,22 @@ func (a *App) AdminListGrants(c *gin.Context) {
 	if t := c.Query("type"); t != "" {
 		q = q.Where("type = ?", t)
 	}
+	if search := strings.TrimSpace(c.Query("search")); search != "" {
+		if len(search) > 128 {
+			common.BadRequest(c, "search 不能超过 128 个字符")
+			return
+		}
+		like := "%" + escapeLikeLiteral(search) + "%"
+		userQuery := a.DB.Model(&model.User{}).
+			Select("id").
+			Where("linux_do_id LIKE ? ESCAPE '\\' OR linux_do_name LIKE ? ESCAPE '\\' OR display_name LIKE ? ESCAPE '\\' OR newapi_username LIKE ? ESCAPE '\\'", like, like, like, like)
+		if numericID, err := strconv.ParseInt(search, 10, 64); err == nil {
+			userQuery = userQuery.Or("id = ? OR newapi_user_id = ?", numericID, numericID)
+			q = q.Where("(user_id IN (?) OR user_id = ? OR type = ? OR ref_id = ? OR newapi_user_id = ?)", userQuery, numericID, search, numericID, numericID)
+		} else {
+			q = q.Where("(user_id IN (?) OR type LIKE ? ESCAPE '\\')", userQuery, like)
+		}
+	}
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	if page < 1 {
@@ -275,13 +316,58 @@ func (a *App) AdminListGrants(c *gin.Context) {
 		pageSize = 20
 	}
 	var total int64
-	q.Count(&total)
+	if err := q.Count(&total).Error; err != nil {
+		common.InternalError(c, "读取流水失败")
+		return
+	}
 	var grants []model.Grant
 	if err := q.Order("id desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&grants).Error; err != nil {
 		common.InternalError(c, "读取流水失败")
 		return
 	}
-	common.Ok(c, gin.H{"total": total, "page": page, "page_size": pageSize, "items": grants,
+
+	// 批量读取用户，避免按流水逐条查询造成 N+1；用户被删除时保留流水本身，user 为 null。
+	usersByID := make(map[int64]model.User, len(grants))
+	if len(grants) > 0 {
+		ids := make([]int64, 0, len(grants))
+		seen := make(map[int64]struct{}, len(grants))
+		for _, grant := range grants {
+			if grant.UserID == 0 {
+				continue
+			}
+			if _, ok := seen[grant.UserID]; ok {
+				continue
+			}
+			seen[grant.UserID] = struct{}{}
+			ids = append(ids, grant.UserID)
+		}
+		if len(ids) > 0 {
+			var users []model.User
+			if err := a.DB.Where("id IN ?", ids).Find(&users).Error; err != nil {
+				common.InternalError(c, "读取流水关联用户失败")
+				return
+			}
+			for _, user := range users {
+				usersByID[user.ID] = user
+			}
+		}
+	}
+	items := make([]AdminGrantItem, 0, len(grants))
+	for _, grant := range grants {
+		item := AdminGrantItem{Grant: grant}
+		if user, ok := usersByID[grant.UserID]; ok {
+			item.User = &AdminGrantUser{
+				ID:             user.ID,
+				LinuxDOID:      user.LinuxDOID,
+				LinuxDOName:    user.LinuxDOName,
+				DisplayName:    user.DisplayName,
+				NewapiUserID:   user.NewapiUserID,
+				NewapiUsername: user.NewapiUsername,
+			}
+		}
+		items = append(items, item)
+	}
+	common.Ok(c, gin.H{"total": total, "page": page, "page_size": pageSize, "items": items,
 		// 前端据此判断某条失败流水是否已用尽自动重试预算(需人工介入)。
 		"auto_retry_enabled":      a.Config.AutoRetryEnabled,
 		"auto_retry_max_attempts": a.Config.AutoRetryMaxAttempts})

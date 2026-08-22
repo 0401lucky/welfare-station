@@ -827,9 +827,15 @@ function toISO(local: string) {
 function GrantsTab() {
   const qc = useQueryClient()
   const [status, setStatus] = useState('')
+  const [search, setSearch] = useState('')
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-grants', status],
-    queryFn: () => api.get<GrantPage>(`/api/admin/grants?page=1&page_size=50&status=${status}`),
+    queryKey: ['admin-grants', status, search],
+    queryFn: () => {
+      const params = new URLSearchParams({ page: '1', page_size: '50' })
+      if (status) params.set('status', status)
+      if (search.trim()) params.set('search', search.trim())
+      return api.get<GrantPage>(`/api/admin/grants?${params.toString()}`)
+    },
   })
   const maxAttempts = data?.auto_retry_enabled ? data.auto_retry_max_attempts : 0
 
@@ -847,12 +853,33 @@ function GrantsTab() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <TabTitle icon={FileText}>发放流水</TabTitle>
-        <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-36">
-          <option value="">全部</option>
-          <option value="success">成功</option>
-          <option value="failed">失败</option>
-          <option value="pending">处理中</option>
-        </Select>
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <div className="relative w-full sm:w-72">
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="搜索用户 ID、用户名或 new-api"
+              className={search ? 'pr-9' : undefined}
+            />
+            {search && (
+              <button
+                type="button"
+                aria-label="清空搜索"
+                title="清空搜索"
+                onClick={() => setSearch('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground transition-colors hover:bg-clover-50 hover:text-clover-700"
+              >
+                <X size={15} />
+              </button>
+            )}
+          </div>
+          <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-36">
+            <option value="">全部</option>
+            <option value="success">成功</option>
+            <option value="failed">失败</option>
+            <option value="pending">处理中</option>
+          </Select>
+        </div>
       </div>
       <p className="text-xs text-clover-700/85">
         {maxAttempts > 0
@@ -862,9 +889,10 @@ function GrantsTab() {
       {isLoading ? <Loading /> : (
         <Card className="p-3 sm:p-4">
           <Table
-            head={['ID', '类型', '额度', '额度类型', '状态', '自动重试', '错误', '时间', '操作']}
+            head={['ID', '用户', '类型', '额度', '额度类型', '状态', '自动重试', '错误', '时间', '操作']}
             rows={(data?.items ?? []).map((g) => [
               <span key="i" className="text-muted-foreground">{g.id}</span>,
+              <GrantUserCell key="u" grant={g} />,
               <span key="t" className="text-clover-800">{typeZh(g.type)} #{g.ref_id}</span>,
               <Quota key="q" value={g.quota} />,
               <Badge key="qt" className={quotaTypeCls(g.quota_type)}>{quotaTypeText(g.quota_type)}</Badge>,
@@ -884,6 +912,34 @@ function GrantsTab() {
         </Card>
       )}
     </div>
+  )
+}
+
+/** 流水用户身份：优先展示站内资料；纯 new-api 手动发放则保留可追踪的目标 ID。 */
+function GrantUserCell({ grant }: { grant: GrantRecord }) {
+  const user = grant.user
+  if (!user) {
+    return (
+      <span className="block min-w-36 text-xs text-muted-foreground">
+        未关联站内用户
+        <span className="mt-0.5 block text-clover-700">new-api ID {grant.newapi_user_id}</span>
+      </span>
+    )
+  }
+
+  return (
+    <span className="block min-w-44">
+      <span className="block font-medium text-clover-800">
+        {user.display_name || user.linux_do_name || `用户 #${user.id}`}
+        <span className="ml-1 text-xs font-normal text-muted-foreground">站内 #{user.id}</span>
+      </span>
+      <span className="mt-0.5 block text-xs text-muted-foreground">
+        LinuxDO {user.linux_do_name ? `@${user.linux_do_name} · ` : ''}#{user.linux_do_id}
+      </span>
+      <span className="mt-0.5 block text-xs text-clover-700">
+        new-api {user.newapi_username || '-'} · ID {user.newapi_user_id ?? grant.newapi_user_id}
+      </span>
+    </span>
   )
 }
 
@@ -939,7 +995,7 @@ function RetryProgress({ grant, maxAttempts }: { grant: GrantRecord; maxAttempts
   )
 }
 
-function typeZh(t: string) { return { checkin: '签到', activity: '活动', manual: '手动' }[t] ?? t }
+function typeZh(t: string) { return { checkin: '签到', activity: '活动', game: '游戏', manual: '手动' }[t] ?? t }
 /* 存量流水没有 quota_type,后端已兜底为 permanent,这里再兜一层空值 */
 function quotaTypeText(t?: string) { return t === 'temporary' ? '限时' : '永久' }
 function quotaTypeCls(t?: string) {

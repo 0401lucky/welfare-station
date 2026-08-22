@@ -262,7 +262,16 @@ function ActivityFeed({
                 <span className="transition-transform duration-300 group-hover:rotate-12">
                   <Clover size={26} />
                 </span>
-                <Badge className={statusBadge(a.status)}>{statusText(a.status)}</Badge>
+                <div className="flex flex-wrap justify-end gap-1">
+                  <Badge className={statusBadge(a.status)}>{statusText(a.status)}</Badge>
+                  {a.user_claim_count > 0 && (
+                    <Badge className={a.user_claim_limit_reached
+                      ? 'border border-clover-200 bg-clover-100 text-clover-800'
+                      : 'border border-clover-100 bg-clover-50 text-clover-700'}>
+                      {a.user_claim_limit_reached ? '已达领取上限' : `已领取 ${a.user_claim_count}/${a.per_user_limit}`}
+                    </Badge>
+                  )}
+                </div>
               </div>
               <h4 className="mt-3 font-bold text-clover-800">{a.title}</h4>
               <p className="mt-1 line-clamp-2 flex-1 whitespace-pre-wrap text-sm text-muted-foreground">
@@ -279,13 +288,21 @@ function ActivityFeed({
                 <span>剩 {a.remaining}/{a.total_count} 份</span>
               </div>
               <Button
-                variant={a.status === 'available' ? 'gradient' : 'outline'}
+                variant={a.status === 'available' && !a.user_claim_limit_reached ? 'gradient' : 'outline'}
                 size="sm"
                 className="mt-4 w-full"
-                disabled={!me?.bound || a.status !== 'available' || claimMut.isPending}
+                disabled={!me?.bound || a.status !== 'available' || a.user_claim_limit_reached || claimMut.isPending}
                 onClick={() => claimMut.mutate(a.id)}
               >
-                {a.status === 'available' ? (me?.bound ? '摘下这片叶子' : '登录绑定后可领') : statusText(a.status)}
+                {a.status !== 'available'
+                  ? statusText(a.status)
+                  : a.user_claim_limit_reached
+                    ? '已达领取上限'
+                    : me?.bound
+                      ? a.user_claim_count > 0
+                        ? `继续领取 (${a.user_claim_count}/${a.per_user_limit})`
+                        : '摘下这片叶子'
+                      : '登录绑定后可领'}
               </Button>
               {a.min_trust_level > 0 && (
                 <p className="mt-2 text-center text-xs text-muted-foreground">
@@ -342,7 +359,7 @@ export default function HomePage() {
   })
 
   const activities = useQuery({
-    queryKey: ['activities'],
+    queryKey: ['activities', me?.user.id ?? null],
     queryFn: () => api.get<Activity[]>('/api/activities'),
   })
 

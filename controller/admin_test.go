@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -174,6 +176,115 @@ func TestAdminWorkflow(t *testing.T) {
 	rec = performJSON(adminRoutes(app), http.MethodPut, fmt.Sprintf("/api/admin/users/%d/status", uid), `{"status":2}`, cookie)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("toggle status: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestAdminListGrantsIncludesUserAndSearch 验证后台流水会带出关联用户，且 search
+// 可按 LinuxDO ID/名称、new-api 用户 ID、流水类型与 ref_id 过滤。
+func TestAdminListGrantsIncludesUserAndSearch(t *testing.T) {
+	app, srv, _ := checkinTestApp(t)
+	defer srv.Close()
+	admin, alice := adminUsers(t, app)
+	alice.DisplayName = "Alice Display"
+	alice.NewapiUsername = "api-alice"
+	if err := app.DB.Model(&alice).Updates(map[string]any{
+		"display_name":    alice.DisplayName,
+		"newapi_username": alice.NewapiUsername,
+	}).Error; err != nil {
+		t.Fatalf("update alice search fields: %v", err)
+	}
+	percentUser := model.User{
+		LinuxDOID:      "literal%user",
+		LinuxDOName:    "Percent Holder",
+		DisplayName:    "Percent Display",
+		Status:         1,
+		NewapiUserID:   int64p(77),
+		NewapiUsername: "api-percent",
+	}
+	if err := app.DB.Create(&percentUser).Error; err != nil {
+		t.Fatalf("create percent user: %v", err)
+	}
+
+	grants := []model.Grant{
+		{UserID: alice.ID, NewapiUserID: 42, Type: "checkin", RefID: 7001, Quota: 100, Status: service.GrantStatusSuccess},
+		{UserID: percentUser.ID, NewapiUserID: 77, Type: "activity", RefID: 7002, Quota: 200, Status: service.GrantStatusFailed},
+		// 关联用户不存在时流水仍应返回，user 留空。
+		{UserID: 999999, NewapiUserID: 88, Type: "manual", RefID: 7003, Quota: 300, Status: service.GrantStatusPending},
+	}
+	for i := range grants {
+		if err := app.DB.Create(&grants[i]).Error; err != nil {
+			t.Fatalf("create grant %d: %v", i, err)
+		}
+	}
+	cookie := sessionCookie(t, app, admin.ID, true)
+
+	type grantPageResponse struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Total    int64            `json:"total"`
+			Page     int              `json:"page"`
+			PageSize int              `json:"page_size"`
+			Items    []AdminGrantItem `json:"items"`
+		} `json:"data"`
+	}
+	get := func(t *testing.T, query string) grantPageResponse {
+		t.Helper()
+		rec := perform(adminRoutes(app), http.MethodGet, "/api/admin/grants?"+query, []*http.Cookie{cookie})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("list grants %q: %d %s", query, rec.Code, rec.Body.String())
+		}
+		var resp grantPageResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode grants %q: %v", query, err)
+		}
+		if !resp.Success {
+			t.Fatalf("list grants %q unsuccessful: %s", query, rec.Body.String())
+		}
+		return resp
+	}
+
+	page := get(t, "page=1&page_size=2")
+	if page.Data.Total != 3 || page.Data.Page != 1 || page.Data.PageSize != 2 || len(page.Data.Items) != 2 {
+		t.Fatalf("pagination changed unexpectedly: %+v", page.Data)
+	}
+	if page.Data.Items[0].ID != grants[2].ID || page.Data.Items[0].User != nil {
+		t.Fatalf("missing user should not hide grant: %+v", page.Data.Items[0])
+	}
+	if page.Data.Items[1].User == nil || page.Data.Items[1].User.ID != percentUser.ID ||
+		page.Data.Items[1].User.LinuxDOID != "literal%user" ||
+		page.Data.Items[1].User.LinuxDOName != "Percent Holder" ||
+		page.Data.Items[1].User.DisplayName != "Percent Display" ||
+		page.Data.Items[1].User.NewapiUserID == nil || *page.Data.Items[1].User.NewapiUserID != 77 {
+		t.Fatalf("grant user projection incomplete: %+v", page.Data.Items[1].User)
+	}
+
+	cases := []struct {
+		name   string
+		search string
+		wantID int64
+	}{
+		{name: "LinuxDO ID", search: "10001", wantID: grants[0].ID},
+		{name: "LinuxDO name", search: "alice", wantID: grants[0].ID},
+		{name: "display name", search: "Alice Display", wantID: grants[0].ID},
+		{name: "new-api username", search: "api-alice", wantID: grants[0].ID},
+		{name: "station user ID", search: strconv.FormatInt(alice.ID, 10), wantID: grants[0].ID},
+		{name: "new-api user ID", search: "42", wantID: grants[0].ID},
+		{name: "grant type", search: "activity", wantID: grants[1].ID},
+		{name: "ref ID", search: "7003", wantID: grants[2].ID},
+		{name: "LIKE wildcard is literal", search: "%", wantID: grants[1].ID},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := get(t, "search="+url.QueryEscape(tc.search))
+			if resp.Data.Total != 1 || len(resp.Data.Items) != 1 || resp.Data.Items[0].ID != tc.wantID {
+				t.Fatalf("search %q got total=%d items=%+v, want grant %d", tc.search, resp.Data.Total, resp.Data.Items, tc.wantID)
+			}
+		})
+	}
+
+	combined := get(t, "status=success&type=checkin&search=alice")
+	if combined.Data.Total != 1 || len(combined.Data.Items) != 1 || combined.Data.Items[0].ID != grants[0].ID {
+		t.Fatalf("existing filters should combine with search: %+v", combined.Data.Items)
 	}
 }
 

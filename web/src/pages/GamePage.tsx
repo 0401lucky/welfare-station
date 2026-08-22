@@ -190,11 +190,12 @@ function Board({
   return (
     <div
       className={cn(
-        'grid aspect-square grid-cols-5 grid-rows-5 gap-1.5 rounded-2xl border border-clover-100 bg-clover-50/70 p-1.5 sm:gap-2 sm:p-2',
+        'select-none grid aspect-square grid-cols-5 grid-rows-5 gap-1.5 rounded-2xl border border-clover-100 bg-clover-50/70 p-1.5 sm:gap-2 sm:p-2',
         frozen && 'pointer-events-none',
       )}
       style={{ touchAction: 'none' }}
       onPointerDown={(e) => {
+        e.preventDefault()
         try {
           e.currentTarget.setPointerCapture(e.pointerId)
         } catch {
@@ -759,7 +760,7 @@ export default function GamePage() {
               )}
             </AnimatePresence>
 
-            <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+            <div className="select-none grid items-start gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
               {/* ---- 棋盘 ---- */}
               <Card className="p-4 sm:p-5">
                 <div className="flex items-end justify-between gap-3">

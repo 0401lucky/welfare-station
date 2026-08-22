@@ -62,6 +62,16 @@ func (m *AuthMiddleware) RequireUser() gin.HandlerFunc {
 	}
 }
 
+// OptionalUser 在会话有效时注入用户；缺失、过期或无效会话均按匿名访问放行。
+func (m *AuthMiddleware) OptionalUser() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if user, err := m.loadUser(c); err == nil {
+			c.Set(ContextUserKey, user)
+		}
+		c.Next()
+	}
+}
+
 // RequireAdmin guards admin routes. Admin identity is double-checked against
 // the database (not just the JWT claim) so whitelist changes take effect
 // immediately (design.md §9).

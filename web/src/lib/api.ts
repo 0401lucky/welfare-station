@@ -121,6 +121,8 @@ export interface Activity {
   start_at_unix: number
   end_at_unix: number
   status: string
+  user_claim_count: number
+  user_claim_limit_reached: boolean
 }
 
 // AdminActivity mirrors the raw model.Activity returned by admin endpoints
@@ -152,11 +154,21 @@ export interface ActivityClaim {
   created_at: string
 }
 
+/** 后台发放流水关联的站内用户投影；手动发给纯 new-api 账号时可能没有该对象。 */
+export interface AdminGrantUser {
+  id: number
+  linux_do_id: string
+  linux_do_name: string
+  display_name: string
+  newapi_user_id: number | null
+  newapi_username: string
+}
+
 export interface GrantRecord {
   id: number
   user_id: number
   newapi_user_id: number
-  type: 'checkin' | 'activity' | 'manual'
+  type: 'checkin' | 'activity' | 'game' | 'manual'
   ref_id: number
   quota: number
   quota_type: QuotaType
@@ -168,6 +180,8 @@ export interface GrantRecord {
   next_retry_at: string | null
   created_at: string
   updated_at: string
+  // 只有后台流水列表会附带；用户侧流水和重试接口仍返回原始 Grant。
+  user?: AdminGrantUser | null
 }
 
 // 后台流水列表在分页信封外附带自动重试配置,用于判断某条失败流水是否已用尽重试预算。

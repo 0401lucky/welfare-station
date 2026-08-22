@@ -74,6 +74,97 @@ func TestBudgetExhausted(t *testing.T) {
 	}
 }
 
+// TestConsumeBudgetsUpToPartial verifies that game and total use the same
+// actual amount and that a smaller remaining pool truncates the payout.
+func TestConsumeBudgetsUpToPartial(t *testing.T) {
+	db := grantDB(t)
+	rules := map[string]BudgetRule{
+		BudgetScopeGame:  {Enabled: true, Daily: 500},
+		BudgetScopeTotal: {Enabled: true, Daily: 800},
+	}
+
+	got, err := ConsumeBudgetsUpTo(db, budgetTestDate, 1000, rules)
+	if err != nil || got != 500 {
+		t.Fatalf("共同额度应截断到 game 剩余 500: got=%d err=%v", got, err)
+	}
+	if used := budgetUsed(t, db, budgetTestDate, BudgetScopeGame); used != 500 {
+		t.Errorf("game used: got %d, want 500", used)
+	}
+	if used := budgetUsed(t, db, budgetTestDate, BudgetScopeTotal); used != 500 {
+		t.Errorf("total used: got %d, want 500", used)
+	}
+
+	got, err = ConsumeBudgetsUpTo(db, budgetTestDate, 1, rules)
+	if err != nil || got != 0 {
+		t.Fatalf("game 已耗尽后不应继续发放: got=%d err=%v", got, err)
+	}
+}
+
+// TestConsumeBudgetsUpToConcurrent checks the aggregate invariant for partial
+// payouts: concurrent requests may split the final remainder, but never exceed
+// either pool's configured daily budget.
+func TestConsumeBudgetsUpToConcurrent(t *testing.T) {
+	db := grantDB(t)
+	rules := map[string]BudgetRule{
+		BudgetScopeGame:  {Enabled: true, Daily: 100},
+		BudgetScopeTotal: {Enabled: true, Daily: 100},
+	}
+
+	const workers = 20
+	results := make([]int64, workers)
+	errs := make([]error, workers)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			results[i], errs[i] = consumeBudgetsUpToInTx(db, budgetTestDate, 100, rules)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	var total int64
+	for i, amount := range results {
+		if errs[i] != nil {
+			t.Fatalf("goroutine %d: %v", i, errs[i])
+		}
+		total += amount
+	}
+	if total != 100 {
+		t.Fatalf("并发部分扣减总额应恰好 100,实际 %d", total)
+	}
+	if got := budgetUsed(t, db, budgetTestDate, BudgetScopeGame); got != 100 {
+		t.Errorf("game used: got %d, want 100", got)
+	}
+	if got := budgetUsed(t, db, budgetTestDate, BudgetScopeTotal); got != 100 {
+		t.Errorf("total used: got %d, want 100", got)
+	}
+}
+
+func consumeBudgetsUpToInTx(db *gorm.DB, date string, requested int64, rules map[string]BudgetRule) (int64, error) {
+	var lastErr error
+	for attempt := 0; attempt < 200; attempt++ {
+		var got int64
+		err := db.Transaction(func(tx *gorm.DB) error {
+			var err error
+			got, err = ConsumeBudgetsUpTo(tx, date, requested, rules)
+			return err
+		})
+		if err == nil {
+			return got, nil
+		}
+		if !isLockedErr(err) {
+			return 0, err
+		}
+		lastErr = err
+		time.Sleep(time.Millisecond)
+	}
+	return 0, lastErr
+}
+
 // TestBudgetDisabledPool 覆盖 enabled=false 的池永远放行,且完全不记账。
 func TestBudgetDisabledPool(t *testing.T) {
 	db := grantDB(t)
@@ -300,6 +391,50 @@ func TestBudgetUsesSingleGuardedUpdate(t *testing.T) {
 		t.Errorf("WHERE 必须带 `used + ? <= ?` 守卫,实际 WHERE: %s", where)
 	}
 	t.Logf("扣减 SQL: %s", updates[0])
+}
+
+// TestConsumeBudgetsUpToUsesGuardedUpdates 锁住两池共同扣减路径的 SQL 形状：
+// 读取余额可以用 FOR UPDATE，但最终每个启用池都必须用带 used + ? <= ?
+// 守卫的单条 UPDATE，避免后续重构退回读-改-写。
+func TestConsumeBudgetsUpToUsesGuardedUpdates(t *testing.T) {
+	db := grantDB(t)
+	rules := map[string]BudgetRule{
+		BudgetScopeGame:  {Enabled: true, Daily: 100},
+		BudgetScopeTotal: {Enabled: true, Daily: 100},
+	}
+	// 预热行，排除首次建行的 INSERT。
+	if _, err := ConsumeBudgetsUpTo(db, budgetTestDate, 1, rules); err != nil {
+		t.Fatalf("预热: %v", err)
+	}
+
+	rec := &sqlRecorder{}
+	session := db.Session(&gorm.Session{Logger: rec})
+	var got int64
+	err := session.Transaction(func(tx *gorm.DB) error {
+		var err error
+		got, err = ConsumeBudgetsUpTo(tx, budgetTestDate, 1, rules)
+		return err
+	})
+	if err != nil || got != 1 {
+		t.Fatalf("观察扣减: got=%d err=%v", got, err)
+	}
+
+	var updates []string
+	for _, sql := range rec.recorded() {
+		up := strings.ToUpper(sql)
+		if strings.HasPrefix(strings.TrimSpace(up), "UPDATE") {
+			updates = append(updates, up)
+		}
+	}
+	if len(updates) != 2 {
+		t.Fatalf("两池各应执行一条 UPDATE,实际 %d 条: %v", len(updates), updates)
+	}
+	for _, update := range updates {
+		_, where, found := strings.Cut(update, "WHERE")
+		if !found || !strings.Contains(where, "USED + ") || !strings.Contains(where, "<=") {
+			t.Errorf("预算 UPDATE 必须带 used + ? <= ? 守卫,实际: %s", update)
+		}
+	}
 }
 
 // sqlRecorder 是只记录 SQL 的 gorm logger。

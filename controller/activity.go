@@ -15,7 +15,7 @@ import (
 
 // GET /api/activities — public activity list (R3.4, visible to anonymous).
 func (a *App) ListActivities(c *gin.Context) {
-	list, err := service.ListPublicActivities(a.DB, time.Now())
+	list, err := service.ListPublicActivities(a.DB, time.Now(), middleware.CurrentUser(c))
 	if err != nil {
 		common.InternalError(c, "读取活动列表失败")
 		return

@@ -330,12 +330,12 @@ func TestGameDailyClaimLimit(t *testing.T) {
 	}
 }
 
-// TestGameUserDailyCap 覆盖 AC6:累计逼近个人上限后,下一笔会超出就整笔不发,
-// 而不是截断成「剩多少给多少」。
+// TestGameUserDailyCap 覆盖 AC6:累计逼近个人上限后,下一笔按剩余额度部分发放,
+// 余额归零后的下一局才返回 over_user_cap。
 func TestGameUserDailyCap(t *testing.T) {
 	svc, mock, db, user := setupGameService(t)
 	defer mock.Close()
-	// 上限 2500,单档 1000:前两局 1000+1000=2000 通过,第三局 3000 > 2500 被拒。
+	// 上限 2500,单档 1000:前两局 1000+1000=2000 通过,第三局只发剩余 500。
 	seedGameConfig(t, db, gameTestRules(1000, 10, 2500), nil)
 
 	for i := 0; i < 2; i++ {
@@ -346,39 +346,38 @@ func TestGameUserDailyCap(t *testing.T) {
 	}
 
 	third := playOnce(t, svc, user, someMoves(8))
-	if third.Play.Reason != GameReasonOverUserCap {
-		t.Fatalf("超个人上限应当是 over_user_cap,实际 %s", third.Play.Reason)
+	if third.Play.Reason != GameReasonOK || third.Play.Quota != 500 {
+		t.Fatalf("个人剩余 500 时应当部分发放,实际 reason=%s quota=%d", third.Play.Reason, third.Play.Quota)
 	}
-	// 剩余 500 —— 截断实现会在这里发 500,必须为 0。
-	if third.Play.Quota != 0 {
-		t.Fatalf("个人上限是全有全无,不能截断成剩余额度 500,实际 quota=%d", third.Play.Quota)
+	if n := countGrants(t, db, third.Play.ID); n != 1 {
+		t.Errorf("部分发放的那局应当有 1 条流水,实际 %d 条", n)
 	}
-	if n := countGrants(t, db, third.Play.ID); n != 0 {
-		t.Errorf("超上限的那局不该有流水,实际 %d 条", n)
+	fourth := playOnce(t, svc, user, someMoves(8))
+	if fourth.Play.Reason != GameReasonOverUserCap || fourth.Play.Quota != 0 {
+		t.Fatalf("个人额度归零后应当 over_user_cap/0,实际 reason=%s quota=%d", fourth.Play.Reason, fourth.Play.Quota)
 	}
 	var sum int64
 	db.Model(&model.GamePlay{}).Where("user_id = ?", user.ID).Select("COALESCE(SUM(quota),0)").Scan(&sum)
-	if sum != 2000 {
-		t.Errorf("今日累计发放应当停在 2000,实际 %d", sum)
+	if sum != 2500 {
+		t.Errorf("今日累计发放应当停在 2500,实际 %d", sum)
 	}
 }
 
-// TestGameSiteBudget 覆盖 AC7/AC8:
-//   - game 池耗尽 → over_site_budget;
-//   - game 池充足但 total 池耗尽 → 同样不发,且 game 池的 used 不能被多扣(回滚生效)。
+// TestGameSiteBudget 覆盖 AC7/AC8:预算池临界时按共同剩余额度部分发放,
+// 两个池的 used 始终增加相同金额。
 func TestGameSiteBudget(t *testing.T) {
 	t.Run("game 池耗尽", func(t *testing.T) {
 		svc, mock, db, user := setupGameService(t)
 		defer mock.Close()
-		// game 池只够一份 1000。
+		// game 池只剩 500,单档奖励 1000。
 		seedGameConfig(t, db, gameTestRules(1000, 10, 100000), map[string]BudgetRule{
-			BudgetScopeGame:  {Enabled: true, Daily: 1000},
+			BudgetScopeGame:  {Enabled: true, Daily: 500},
 			BudgetScopeTotal: {Enabled: false},
 		})
 
 		first := playOnce(t, svc, user, someMoves(8))
-		if first.Play.Reason != GameReasonOK {
-			t.Fatalf("第一局应当发放,实际 %s", first.Play.Reason)
+		if first.Play.Reason != GameReasonOK || first.Play.Quota != 500 {
+			t.Fatalf("第一局应当按剩余预算发放 500,实际 reason=%s quota=%d", first.Play.Reason, first.Play.Quota)
 		}
 		second := playOnce(t, svc, user, someMoves(8))
 		if second.Play.Reason != GameReasonOverSiteBudget || second.Play.Quota != 0 {
@@ -390,38 +389,37 @@ func TestGameSiteBudget(t *testing.T) {
 			t.Errorf("预算发完也要照常记成绩,实际 score=%d moves=%d", second.Play.Score, second.Play.Moves)
 		}
 		today := TodayStr("Asia/Shanghai", time.Now())
-		if got := budgetUsed(t, db, today, BudgetScopeGame); got != 1000 {
-			t.Errorf("game 池 used 应当恰好 1000,实际 %d", got)
+		if got := budgetUsed(t, db, today, BudgetScopeGame); got != 500 {
+			t.Errorf("game 池 used 应当恰好 500,实际 %d", got)
 		}
 	})
 
 	t.Run("game 充足但 total 耗尽", func(t *testing.T) {
 		svc, mock, db, user := setupGameService(t)
 		defer mock.Close()
-		// total 只够一份,game 够两份。
+		// total 只剩 500,game 充足。
 		seedGameConfig(t, db, gameTestRules(1000, 10, 100000), map[string]BudgetRule{
 			BudgetScopeGame:  {Enabled: true, Daily: 100000},
-			BudgetScopeTotal: {Enabled: true, Daily: 1000},
+			BudgetScopeTotal: {Enabled: true, Daily: 500},
 		})
 
-		if res := playOnce(t, svc, user, someMoves(8)); res.Play.Reason != GameReasonOK {
-			t.Fatalf("第一局应当发放,实际 %s", res.Play.Reason)
+		if res := playOnce(t, svc, user, someMoves(8)); res.Play.Reason != GameReasonOK || res.Play.Quota != 500 {
+			t.Fatalf("第一局应按 total 剩余发放 500,实际 reason=%s quota=%d", res.Play.Reason, res.Play.Quota)
 		}
 		second := playOnce(t, svc, user, someMoves(8))
 		if second.Play.Reason != GameReasonOverSiteBudget || second.Play.Quota != 0 {
-			t.Fatalf("total 池耗尽同样不发,实际 reason=%s quota=%d", second.Play.Reason, second.Play.Quota)
+			t.Fatalf("total 池耗尽后应当 over_site_budget/0,实际 reason=%s quota=%d", second.Play.Reason, second.Play.Quota)
 		}
 		if n := countGrants(t, db, second.Play.ID); n != 0 {
 			t.Errorf("被总池挡下的那局不该有流水,实际 %d 条", n)
 		}
 
 		today := TodayStr("Asia/Shanghai", time.Now())
-		// 第二局在 game 池扣成功、total 池失败 —— 整个事务回滚,game 的那笔必须撤销。
-		if got := budgetUsed(t, db, today, BudgetScopeGame); got != 1000 {
-			t.Fatalf("total 被拒后 game 池 used 必须回到 1000(多扣说明回滚没生效),实际 %d", got)
+		if got := budgetUsed(t, db, today, BudgetScopeGame); got != 500 {
+			t.Fatalf("game 池 used 应当与实际发放一致,实际 %d", got)
 		}
-		if got := budgetUsed(t, db, today, BudgetScopeTotal); got != 1000 {
-			t.Fatalf("total 池 used 应当停在 1000,实际 %d", got)
+		if got := budgetUsed(t, db, today, BudgetScopeTotal); got != 500 {
+			t.Fatalf("total 池 used 应当与实际发放一致,实际 %d", got)
 		}
 	})
 }

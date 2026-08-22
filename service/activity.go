@@ -40,12 +40,14 @@ var (
 // knobs like claimed_count raw pointer).
 type PublicActivity struct {
 	model.Activity
-	Status      string  `json:"status"`    // claim availability
-	Remaining   int     `json:"remaining"` // remaining copies
-	Claimed     int     `json:"claimed"`   // claimed copies
-	Progress    float64 `json:"progress"`  // 0..1 used ratio
-	StartAtUnix int64   `json:"start_at_unix"`
-	EndAtUnix   int64   `json:"end_at_unix"`
+	Status                string  `json:"status"`    // claim availability
+	Remaining             int     `json:"remaining"` // remaining copies
+	Claimed               int     `json:"claimed"`   // claimed copies
+	Progress              float64 `json:"progress"`  // 0..1 used ratio
+	StartAtUnix           int64   `json:"start_at_unix"`
+	EndAtUnix             int64   `json:"end_at_unix"`
+	UserClaimCount        int     `json:"user_claim_count"`         // 当前用户已领取次数
+	UserClaimLimitReached bool    `json:"user_claim_limit_reached"` // 当前用户是否达到个人上限
 }
 
 // ActivityClaimAvailability computes the per-viewer claim state.
@@ -65,12 +67,36 @@ func ActivityClaimAvailability(a *model.Activity, now time.Time) string {
 }
 
 // ListPublicActivities returns the on-shelf activities with availability state.
-func ListPublicActivities(db *gorm.DB, now time.Time) ([]PublicActivity, error) {
+// viewer 为空时按匿名访问处理，保持公开接口无需认证。
+func ListPublicActivities(db *gorm.DB, now time.Time, viewer *model.User) ([]PublicActivity, error) {
 	var acts []model.Activity
 	err := db.Where("status = ?", ActivityStatusOn).Order("start_at asc").Find(&acts).Error
 	if err != nil {
 		return nil, err
 	}
+
+	userClaimCounts := make(map[int64]int64)
+	if viewer != nil && len(acts) > 0 {
+		activityIDs := make([]int64, 0, len(acts))
+		for i := range acts {
+			activityIDs = append(activityIDs, acts[i].ID)
+		}
+		var rows []struct {
+			ActivityID int64 `gorm:"column:activity_id"`
+			Count      int64 `gorm:"column:claim_count"`
+		}
+		if err := db.Model(&model.Claim{}).
+			Select("activity_id, COUNT(*) AS claim_count").
+			Where("user_id = ? AND activity_id IN ?", viewer.ID, activityIDs).
+			Group("activity_id").
+			Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			userClaimCounts[row.ActivityID] = row.Count
+		}
+	}
+
 	out := make([]PublicActivity, 0, len(acts))
 	for i := range acts {
 		a := &acts[i]
@@ -83,14 +109,17 @@ func ListPublicActivities(db *gorm.DB, now time.Time) ([]PublicActivity, error) 
 		if a.TotalCount > 0 {
 			progress = float64(a.ClaimedCount) / float64(a.TotalCount)
 		}
+		userClaimCount := int(userClaimCounts[a.ID])
 		out = append(out, PublicActivity{
-			Activity:    *a,
-			Status:      avail,
-			Remaining:   remaining,
-			Claimed:     a.ClaimedCount,
-			Progress:    progress,
-			StartAtUnix: a.StartAt.Unix(),
-			EndAtUnix:   a.EndAt.Unix(),
+			Activity:              *a,
+			Status:                avail,
+			Remaining:             remaining,
+			Claimed:               a.ClaimedCount,
+			Progress:              progress,
+			StartAtUnix:           a.StartAt.Unix(),
+			EndAtUnix:             a.EndAt.Unix(),
+			UserClaimCount:        userClaimCount,
+			UserClaimLimitReached: userClaimCount >= a.PerUserLimit,
 		})
 	}
 	return out, nil

@@ -55,6 +55,73 @@ func TryConsume(tx *gorm.DB, date, scope string, amount int64, rule BudgetRule) 
 	return res.RowsAffected == 1, nil
 }
 
+// ConsumeBudgetsUpTo 在一个已经开启的结算事务内，为 game 与 total 两个池
+// 计算并扣减共同可用额度。返回值是实际扣减额，可能小于 requested。
+//
+// 两个池始终按 game -> total 的顺序锁定，避免并发结算以相反顺序取锁形成死锁。
+// 读取在行锁内完成，最终 UPDATE 仍保留 used + amount <= daily 守卫：MySQL
+// 依靠 FOR UPDATE 串行化，SQLite 等弱锁方言也不会因为调用方误用而静默超发。
+func ConsumeBudgetsUpTo(tx *gorm.DB, date string, requested int64, rules map[string]BudgetRule) (int64, error) {
+	if requested <= 0 {
+		return 0, nil
+	}
+
+	remaining := requested
+	locked := make([]lockedBudget, 0, 2)
+	for _, scope := range []string{BudgetScopeGame, BudgetScopeTotal} {
+		rule := rules[scope]
+		if !rule.Enabled {
+			continue
+		}
+		if !isKnownBudgetScope(scope) {
+			return 0, fmt.Errorf("未知的预算池 %s", scope)
+		}
+		if err := ensureBudgetRow(tx, date, scope); err != nil {
+			return 0, err
+		}
+
+		var row model.DailyBudget
+		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("date = ? AND scope = ?", date, scope).First(&row)
+		if query.Error != nil {
+			return 0, query.Error
+		}
+		available := rule.Daily - row.Used
+		if available < 0 {
+			available = 0
+		}
+		if available < remaining {
+			remaining = available
+		}
+		locked = append(locked, lockedBudget{scope: scope, rule: rule})
+	}
+
+	if remaining <= 0 {
+		return 0, nil
+	}
+	for _, budget := range locked {
+		res := tx.Model(&model.DailyBudget{}).
+			Where("date = ? AND scope = ? AND used + ? <= ?",
+				date, budget.scope, remaining, budget.rule.Daily).
+			Updates(map[string]any{
+				"used":       gorm.Expr("used + ?", remaining),
+				"updated_at": time.Now(),
+			})
+		if res.Error != nil {
+			return 0, res.Error
+		}
+		if res.RowsAffected != 1 {
+			return 0, fmt.Errorf("预算池 %s 在锁定后仍无法扣减", budget.scope)
+		}
+	}
+	return remaining, nil
+}
+
+type lockedBudget struct {
+	scope string
+	rule  BudgetRule
+}
+
 // ensureBudgetRow 保证当日该池的行存在。并发下两个 insert 只有一个能成功,
 // 撞唯一键属正常情况,不当作错误。
 func ensureBudgetRow(tx *gorm.DB, date, scope string) error {

@@ -78,11 +78,8 @@ func (e *GameCooldownError) Error() string {
 	return fmt.Sprintf("刚结算完,请等待 %d 秒后再开一局", e.Remaining)
 }
 
-// 以下三个是只在包内流转的哨兵错误,用来把事务导向对应分支,不会返回给调用方。
+// 以下两个是只在包内流转的哨兵错误,用来把事务导向对应分支,不会返回给调用方。
 var (
-	// errGameBudgetRejected:两级预算里有一级扣不动。必须让整个事务回滚,
-	// 已扣的那一级随之撤销(design.md §6:不手写补偿逻辑)。
-	errGameBudgetRejected = errors.New("game: budget rejected")
 	// errGameSessionGone:会话已不在,转幂等分支去查首次结算结果。
 	errGameSessionGone = errors.New("game: session gone")
 	// errGamePlayDuplicated:uk_session 拦下了并发的重复结算,同样转幂等分支。
@@ -327,13 +324,7 @@ func (s *GameService) Settle(user *model.User, gameType, sessionID string, baseM
 		return nil, ErrNotBound
 	}
 
-	res, err := s.settleOnce(cfg, rules, user, gameType, sessionID, baseMoves, normalized, false)
-	if errors.Is(err, errGameBudgetRejected) {
-		// 上一轮事务已整体回滚(含 game 池那笔扣减),这一轮以 reward=0 记账,
-		// 全程不再碰预算表 —— 因此既不会漏扣(没发额度就不该扣),
-		// 也不会多扣(第一轮扣的那笔随回滚消失,第二轮一次都不扣)。
-		res, err = s.settleOnce(cfg, rules, user, gameType, sessionID, baseMoves, normalized, true)
-	}
+	res, err := s.settleOnce(cfg, rules, user, gameType, sessionID, baseMoves, normalized)
 	if errors.Is(err, errGameSessionGone) || errors.Is(err, errGamePlayDuplicated) {
 		// 会话没了或被 uk_session 拦下:这局要么已经结算过,要么根本不存在。
 		return s.replaySettled(sessionID, user.ID, rules)
@@ -352,10 +343,10 @@ func (s *GameService) Settle(user *model.User, gameType, sessionID string, baseM
 	return res, nil
 }
 
-// settleOnce 在一个事务里跑完一次结算尝试。budgetDenied=true 表示上一次尝试已经
-// 确认预算不足,本次直接按 over_site_budget 记账并跳过全部扣减动作。
+// settleOnce 在一个事务里跑完一次结算尝试。个人上限与两个站点预算池都按
+// 实际剩余额度截断，事务内持有必要的行锁以保证并发结算不会超发。
 func (s *GameService) settleOnce(cfg *GameConfig, rules GameRules, user *model.User,
-	gameType, sessionID string, baseMoves int, moves []game2048.Direction, budgetDenied bool,
+	gameType, sessionID string, baseMoves int, moves []game2048.Direction,
 ) (*SettleResult, error) {
 	now := time.Now()
 	today := TodayStr(cfg.Timezone, now)
@@ -380,7 +371,7 @@ func (s *GameService) settleOnce(cfg *GameConfig, rules GameRules, user *model.U
 		final := simulateSegment(session.Seed, cp, moves)
 		highest := game2048.HighestTile(final.Grid)
 
-		reward, reason, hit, err := computeGameReward(tx, cfg, rules, user.ID, gameType, today, highest, budgetDenied)
+		reward, reason, hit, err := computeGameReward(tx, cfg, rules, user.ID, gameType, today, highest)
 		if err != nil {
 			return err
 		}
@@ -434,11 +425,8 @@ func (s *GameService) settleOnce(cfg *GameConfig, rules GameRules, user *model.U
 
 // computeGameReward 按 design.md §5 的顺序算出本局发多少、为什么。五道闸依次短路,
 // 前一道判负后面的都不再查库。
-//
-// budgetDenied=true 时跳过预算扣减直接判 over_site_budget:调用方已经在上一轮
-// 事务里确认过预算不足,而那一轮连同扣减一起回滚了。
 func computeGameReward(tx *gorm.DB, cfg *GameConfig, rules GameRules, userID int64,
-	gameType, today string, highestTile int, budgetDenied bool,
+	gameType, today string, highestTile int,
 ) (int64, string, *GameTier, error) {
 	if !rules.Enabled {
 		return 0, GameReasonDisabled, nil, nil
@@ -449,6 +437,15 @@ func computeGameReward(tx *gorm.DB, cfg *GameConfig, rules GameRules, userID int
 	// 配成 0,玩家达到它就会白白烧掉一次领奖机会却拿不到任何额度。
 	if !ok || tier.Quota <= 0 {
 		return 0, GameReasonBelowTier, nil, nil
+	}
+
+	// 同一用户的并发结算必须串行读取今日累计,否则两个事务可能同时看到
+	// 相同的剩余额度或领奖次数而把个人闸击穿。锁定用户行后再读取今日数据、
+	// 锁 game/total 预算行,
+	// 所有结算都遵守同一锁序。
+	var owner model.User
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&owner, userID).Error; err != nil {
+		return 0, "", nil, err
 	}
 
 	// 次数闸:只数 reason=ok 的笔数。没够到奖励线、被各级限额挡下的结算都不占次数(R2.3)。
@@ -462,41 +459,33 @@ func computeGameReward(tx *gorm.DB, cfg *GameConfig, rules GameRules, userID int
 	if claimed >= int64(rules.DailyClaimLimit) {
 		return 0, GameReasonOverDailyLimit, nil, nil
 	}
-
-	// 个人上限闸:全有全无。合成出 2048 却只到账两分钱,比明确告知「今日额度已拿满」
-	// 更难解释,也会让流水金额对不上档位表(R2.4)。
 	var todayQuota int64
 	if err := tx.Model(&model.GamePlay{}).
 		Where("user_id = ? AND game_type = ? AND play_date = ?", userID, gameType, today).
 		Select("COALESCE(SUM(quota),0)").Scan(&todayQuota).Error; err != nil {
 		return 0, "", nil, err
 	}
-	if todayQuota+tier.Quota > rules.UserDailyCap {
+	personalRemaining := rules.UserDailyCap - todayQuota
+	if personalRemaining <= 0 {
 		return 0, GameReasonOverUserCap, nil, nil
 	}
+	requested := tier.Quota
+	if personalRemaining < requested {
+		requested = personalRemaining
+	}
 
-	if budgetDenied {
+	// 预算闸:两个池在同一事务内按固定顺序锁定,取共同剩余额度并用同一个
+	// 实际金额扣减。预算不足时仍可部分发放,只有共同余额为 0 才不发。
+	reward, err := ConsumeBudgetsUpTo(tx, today, requested, cfg.Budgets)
+	if err != nil {
+		return 0, "", nil, err
+	}
+	if reward <= 0 {
 		return 0, GameReasonOverSiteBudget, nil, nil
-	}
-	// 预算闸:先扣来源池、再扣总池,两者都过才发放。任一扣不动就抛哨兵让整个事务
-	// 回滚,已扣的那一级自然撤销。
-	okGame, err := TryConsume(tx, today, BudgetScopeGame, tier.Quota, cfg.Budgets[BudgetScopeGame])
-	if err != nil {
-		return 0, "", nil, err
-	}
-	if !okGame {
-		return 0, "", nil, errGameBudgetRejected
-	}
-	okTotal, err := TryConsume(tx, today, BudgetScopeTotal, tier.Quota, cfg.Budgets[BudgetScopeTotal])
-	if err != nil {
-		return 0, "", nil, err
-	}
-	if !okTotal {
-		return 0, "", nil, errGameBudgetRejected
 	}
 
 	hit := tier
-	return tier.Quota, GameReasonOK, &hit, nil
+	return reward, GameReasonOK, &hit, nil
 }
 
 // replaySettled 返回该 session 首次结算的结果(AC3)。uk_session 保证同一 session

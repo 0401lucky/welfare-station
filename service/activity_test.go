@@ -174,7 +174,7 @@ func TestActivityAvailability(t *testing.T) {
 	off := model.Activity{Title: "off", Quota: 10, TotalCount: 10, PerUserLimit: 1, StartAt: now.Add(-time.Hour), EndAt: now.Add(time.Hour), Status: ActivityStatusOff}
 	db.Create(&off)
 
-	list, err := ListPublicActivities(db, now)
+	list, err := ListPublicActivities(db, now, nil)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -196,6 +196,55 @@ func TestActivityAvailability(t *testing.T) {
 	}
 	if _, exists := got["off"]; exists {
 		t.Errorf("off-shelf activity must not be listed")
+	}
+}
+
+// TestPublicActivitiesUserClaimStatus 验证登录用户领取进度及匿名响应的零值状态。
+func TestPublicActivitiesUserClaimStatus(t *testing.T) {
+	db := activityTestDB(t)
+	now := time.Now()
+	a1 := model.Activity{Title: "single", Quota: 10, TotalCount: 10, PerUserLimit: 1, StartAt: now.Add(-time.Hour), EndAt: now.Add(time.Hour), Status: ActivityStatusOn}
+	a2 := model.Activity{Title: "multi", Quota: 10, TotalCount: 10, PerUserLimit: 3, StartAt: now.Add(-time.Hour), EndAt: now.Add(time.Hour), Status: ActivityStatusOn}
+	if err := db.Create(&a1).Error; err != nil {
+		t.Fatalf("create activity 1: %v", err)
+	}
+	if err := db.Create(&a2).Error; err != nil {
+		t.Fatalf("create activity 2: %v", err)
+	}
+	user := model.User{LinuxDOID: "claim-status", LinuxDOName: "claim-status", Status: 1}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if err := db.Create(&model.Claim{ActivityID: a1.ID, UserID: user.ID, Quota: a1.Quota, Seq: 1}).Error; err != nil {
+		t.Fatalf("create claim 1: %v", err)
+	}
+	for seq := 1; seq <= 2; seq++ {
+		if err := db.Create(&model.Claim{ActivityID: a2.ID, UserID: user.ID, Quota: a2.Quota, Seq: seq}).Error; err != nil {
+			t.Fatalf("create claim 2/%d: %v", seq, err)
+		}
+	}
+
+	anonymous, err := ListPublicActivities(db, now, nil)
+	if err != nil {
+		t.Fatalf("anonymous list: %v", err)
+	}
+	if len(anonymous) != 2 || anonymous[0].UserClaimCount != 0 || anonymous[0].UserClaimLimitReached || anonymous[1].UserClaimCount != 0 || anonymous[1].UserClaimLimitReached {
+		t.Fatalf("anonymous claim state should be empty: %+v", anonymous)
+	}
+
+	list, err := ListPublicActivities(db, now, &user)
+	if err != nil {
+		t.Fatalf("user list: %v", err)
+	}
+	got := map[string]PublicActivity{}
+	for _, item := range list {
+		got[item.Title] = item
+	}
+	if got["single"].UserClaimCount != 1 || !got["single"].UserClaimLimitReached {
+		t.Fatalf("single-claim status mismatch: %+v", got["single"])
+	}
+	if got["multi"].UserClaimCount != 2 || got["multi"].UserClaimLimitReached {
+		t.Fatalf("multi-claim status mismatch: %+v", got["multi"])
 	}
 }
 
