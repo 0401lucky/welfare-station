@@ -11,6 +11,8 @@ on:
       - '.env.example'
   workflow_dispatch:
 
+# DEPLOY_PATH 用仓库变量而不是 Secret:它不是机密,而被掩码成 *** 会让
+# 「路径下缺 .env」这类报错完全无法判读。主机/用户/私钥仍走 Secrets。
 env:
   REGISTRY: ghcr.io
   # 镜像名必须全小写,GHCR 拒绝大写;仓库名本身已是小写,这里显式写死避免歧义。
@@ -89,7 +91,7 @@ jobs:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/opt/welfare-station' }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/welfare-station' }}
         run: |
           ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 "$SSH_USER@$SSH_HOST" \
             "mkdir -p '$DEPLOY_PATH'"
@@ -101,7 +103,7 @@ jobs:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/opt/welfare-station' }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/welfare-station' }}
           IMAGE: ${{ needs.build.outputs.image }}
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
