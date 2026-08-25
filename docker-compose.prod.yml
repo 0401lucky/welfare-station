@@ -1,0 +1,45 @@
+# 福利站 生产部署 compose(服务器上使用)。
+#
+# 与根目录 docker-compose.yml 的区别:这份**不构建**,直接拉 GitHub Actions
+# 推到 GHCR 的镜像。CI 会把本文件同步到服务器的部署目录,然后执行
+# `docker compose pull && docker compose up -d`。
+#
+# 服务器上需要自备(都不进 git):
+#   1. .env —— 与本文件同目录,内容参照仓库 .env.example
+#   2. 可达的 MySQL 与 new-api 实例
+#
+# 镜像 tag 由 CI 通过 .env 里的 WELFARE_IMAGE 注入;未设置时回落 :main。
+
+services:
+  welfare:
+    image: ${WELFARE_IMAGE:-ghcr.io/0401lucky/welfare-station:main}
+    container_name: welfare-station
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      # 只绑本机回环:对外由宿主机的 Nginx/Caddy 反代并终结 HTTPS。
+      # 要直接暴露公网请改成 "8080:8080",但那样 Cookie 的 Secure 属性会失效。
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      # 站点信息是公开只读接口,不需要鉴权,适合做存活探针。
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/site/info"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      # 不限制的话 json 日志会把磁盘写满,这是长跑容器最常见的运维事故。
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # new-api 若在自己的 compose 网络里,取消下面注释并把网络名填对,
+    # 然后 .env 里用 NEWAPI_BASE_URL=http://new-api:3000
+    # networks:
+    #   - new-api-network
+
+# networks:
+#   new-api-network:
+#     external: true
+#     name: <实际的 new-api compose 网络名>

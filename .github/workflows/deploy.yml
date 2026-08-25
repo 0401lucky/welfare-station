@@ -1,0 +1,148 @@
+name: 构建镜像并部署
+
+# 推 main 自动构建 + 部署(经确认的策略)。
+# workflow_dispatch 保留手动重跑入口:部署失败后不必空推一个 commit 才能重试。
+on:
+  push:
+    branches: [main]
+    # 只改文档不重建镜像,省 CI 时间。
+    paths-ignore:
+      - '**.md'
+      - '.env.example'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  # 镜像名必须全小写,GHCR 拒绝大写;仓库名本身已是小写,这里显式写死避免歧义。
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    name: 构建并推送镜像
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 计算镜像名与 tag
+        id: meta
+        run: |
+          # GHCR 要求镜像路径全小写,且必须带 ghcr.io 前缀 —— 少了前缀会被当成
+          # Docker Hub 的镜像名推错地方。
+          base="${REGISTRY}/$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+          echo "image=${base}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 构建并推送
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # 同时打 commit sha 与 main:前者用于精确回滚,后者便于人工 pull。
+          tags: |
+            ${{ steps.meta.outputs.base }}:${{ github.sha }}
+            ${{ steps.meta.outputs.base }}:main
+          # 复用上一次构建缓存,Go 与 npm 依赖不必每次重下。
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: 部署到服务器
+    needs: build
+    runs-on: ubuntu-latest
+    # 建议在仓库 Settings → Environments 建一个 production 环境,
+    # 可选加 required reviewers 把自动部署变成需人工点确认。
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 准备 SSH 私钥
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # 固定主机指纹,避免中间人;首次部署前请把服务器公钥填进 SSH_KNOWN_HOSTS。
+          printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: 同步 compose 文件
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/opt/welfare-station' }}
+        run: |
+          ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 "$SSH_USER@$SSH_HOST" \
+            "mkdir -p '$DEPLOY_PATH'"
+          scp -P "$SSH_PORT" -i ~/.ssh/id_ed25519 docker-compose.prod.yml \
+            "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/docker-compose.yml"
+
+      - name: 拉取镜像并滚动重启
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/opt/welfare-station' }}
+          IMAGE: ${{ needs.build.outputs.image }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+        run: |
+          ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 "$SSH_USER@$SSH_HOST" \
+            "IMAGE='$IMAGE' DEPLOY_PATH='$DEPLOY_PATH' GHCR_USER='$GHCR_USER' GHCR_TOKEN='$GHCR_TOKEN' bash -se" <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+
+          # .env 是必需的、且只存在于服务器上。缺了就直接失败,别把服务停在半截。
+          if [ ! -f .env ]; then
+            echo "错误:$DEPLOY_PATH/.env 不存在。请先按仓库 .env.example 创建它。" >&2
+            exit 1
+          fi
+
+          # 私有镜像需要登录 GHCR;若把 package 设为 public 可不提供该 token。
+          if [ -n "${GHCR_TOKEN:-}" ]; then
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+          fi
+
+          # 把本次要跑的确切镜像(带 commit sha)写进 .env,让 compose 用它。
+          # 这样服务器上留有「当前跑的是哪个 commit」的痕迹,回滚只需改这一行。
+          if grep -q '^WELFARE_IMAGE=' .env; then
+            sed -i "s|^WELFARE_IMAGE=.*|WELFARE_IMAGE=$IMAGE|" .env
+          else
+            printf '\nWELFARE_IMAGE=%s\n' "$IMAGE" >> .env
+          fi
+
+          docker compose pull
+          docker compose up -d
+
+          # 等健康检查转绿,避免 CI 显示成功而服务其实起不来。
+          for i in $(seq 1 30); do
+            status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' welfare-station 2>/dev/null || echo missing)
+            case "$status" in
+              healthy) echo "容器健康,部署完成"; break ;;
+              none)    echo "镜像未定义健康检查,跳过等待"; break ;;
+              *)       echo "等待健康检查($i/30):$status"; sleep 3 ;;
+            esac
+            if [ "$i" = 30 ]; then
+              echo "健康检查未在 90 秒内转绿,最近日志:" >&2
+              docker compose logs --tail 60 welfare >&2
+              exit 1
+            fi
+          done
+
+          # 清掉悬空镜像,免得磁盘被历史 tag 撑满。
+          docker image prune -f
+          REMOTE
