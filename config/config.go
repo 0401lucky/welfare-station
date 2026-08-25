@@ -53,7 +53,9 @@ func Get() (*Config, error) {
 	}
 
 	quotaPerUnit, err1 := positiveInt64("QUOTA_PER_UNIT", os.Getenv("QUOTA_PER_UNIT"), 500000)
-	maxGrant, err2 := positiveInt64("MAX_GRANT_QUOTA", os.Getenv("MAX_GRANT_QUOTA"), 5000000)
+	// MAX_GRANT_QUOTA 现在只是**首次运行的种子值**:落库后由后台「单次发放上限」接管
+	// (service.GetGrantConfig)。默认 25000000 = $50(按 QUOTA_PER_UNIT=500000 折算)。
+	maxGrant, err2 := positiveInt64("MAX_GRANT_QUOTA", os.Getenv("MAX_GRANT_QUOTA"), 25000000)
 	cfg.QuotaPerUnit = quotaPerUnit
 	cfg.MaxGrantQuota = maxGrant
 

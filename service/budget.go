@@ -55,20 +55,26 @@ func TryConsume(tx *gorm.DB, date, scope string, amount int64, rule BudgetRule) 
 	return res.RowsAffected == 1, nil
 }
 
-// ConsumeBudgetsUpTo 在一个已经开启的结算事务内，为 game 与 total 两个池
+// ConsumeBudgetsUpTo 在一个已经开启的结算事务内，为 scopes 列出的池
 // 计算并扣减共同可用额度。返回值是实际扣减额，可能小于 requested。
 //
-// 两个池始终按 game -> total 的顺序锁定，避免并发结算以相反顺序取锁形成死锁。
+// scopes 的**顺序即锁序**,并且约定 total 永远排在最后:小游戏传
+// [game, total],抽奖传 [draw, total]。这样不同发放路径不会以相反顺序取锁
+// 形成死锁(没有任何路径先锁 total 再去锁来源池)。
+//
+// 这里刻意不从 rules 的键推导要扣哪些池:rules 是整张预算表,包含 checkin /
+// activity 等与本次发放无关的池,照着它遍历会把不相干的池一起扣掉。
+//
 // 读取在行锁内完成，最终 UPDATE 仍保留 used + amount <= daily 守卫：MySQL
 // 依靠 FOR UPDATE 串行化，SQLite 等弱锁方言也不会因为调用方误用而静默超发。
-func ConsumeBudgetsUpTo(tx *gorm.DB, date string, requested int64, rules map[string]BudgetRule) (int64, error) {
+func ConsumeBudgetsUpTo(tx *gorm.DB, date string, requested int64, rules map[string]BudgetRule, scopes []string) (int64, error) {
 	if requested <= 0 {
 		return 0, nil
 	}
 
 	remaining := requested
-	locked := make([]lockedBudget, 0, 2)
-	for _, scope := range []string{BudgetScopeGame, BudgetScopeTotal} {
+	locked := make([]lockedBudget, 0, len(scopes))
+	for _, scope := range scopes {
 		rule := rules[scope]
 		if !rule.Enabled {
 			continue

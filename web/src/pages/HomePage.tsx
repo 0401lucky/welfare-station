@@ -2,13 +2,13 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Gift, LogIn, RefreshCw, Sparkles, Timer } from 'lucide-react'
+import { Gift, LogIn, Sparkles, Timer } from 'lucide-react'
 import Header from '@/components/Header'
 import Quota from '@/components/Quota'
 import { Button, Card, Badge, Progress, Spinner } from '@/components/ui'
 import { Clover, CloverEmblem, CloverRain } from '@/components/Clover'
 import { toast } from '@/components/Toast'
-import { api, Activity, CheckinResult, ClaimResult, SelfInfo, CheckinView } from '@/lib/api'
+import { api, Activity, CheckinResult, ClaimResult, DrawReason, DrawResult, DrawView, SelfInfo, CheckinView } from '@/lib/api'
 import { useMe, useSiteInfo } from '@/hooks/useMe'
 import { formatExpireIn, formatUSD, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -53,40 +53,226 @@ function Calendar({ dates, today }: { dates: string[]; today?: string }) {
   )
 }
 
-/* ---------- 今日幸运指数(纯前端趣味,参考图) ---------- */
-const luckTiers: [number, string, string][] = [
-  [95, '欧皇附体', '这种分数一年也没几次,快去买彩票……开玩笑的。'],
-  [80, '好运在握', '今天适合做重要的决定,顺便签个到。'],
-  [60, '稳中带旺', '平平顺顺,摘片叶子攒攒运气。'],
-  [40, '一般般绿', '别急,四叶草多摸两下就转运了。'],
-  [20, '低调蓄力', '今天宜苟,签到领额度就是最大的胜利。'],
-  [0, '非酋时刻', '没关系,明天的叶子已经在长了。'],
-]
+/* ---------- 今日幸运抽奖 ----------
+ *
+ * 每人每天摇一次 1-100 的幸运数字,数字落点直接决定奖励档位。
+ *
+ * 随机权威**只在服务端**:这五片四叶草纯粹是揭晓动画,点哪一片都拿到同一个
+ * 服务端结果。所以这里不存在「选中的牌」与「结果」的对应关系需要维护,
+ * picked 只用来决定翻哪张牌的视觉。
+ */
+const DRAW_CARD_COUNT = 5
 
-function LuckyIndexCard() {
-  const [seed, setSeed] = useState(() => Math.random())
-  const score = Math.max(1, Math.round(seed * 100))
-  const [, tier, quip] = luckTiers.find(([min]) => score >= min)!
+/** 按 reason 出结果标题与说明。quota>0 才是真中奖。 */
+function drawVerdict(r: { reason: DrawReason; quota: number }) {
+  switch (r.reason) {
+    case 'ok':
+      return { tone: 'win' as const, note: '' }
+    case 'jackpot_fallback':
+      return { tone: 'win' as const, note: '今日大奖名额已满,这份按限时额度发放' }
+    case 'over_site_budget':
+      return { tone: 'empty' as const, note: '手气够了,可惜今天的奖池已经见底,明天再来' }
+    default:
+      return { tone: 'none' as const, note: '' }
+  }
+}
+
+/** 盖着的牌背:四叶草暗纹 + 细虚线环 */
+function CardBack() {
+  return (
+    <span className="flex h-full w-full items-center justify-center rounded-2xl border border-clover-100 bg-gradient-to-br from-clover-50 to-cream">
+      <Clover size={28} stem={false} petal="#bce3c9" petalAlt="#dcf1e2" />
+    </span>
+  )
+}
+
+function LuckyDrawCard({ me, onWin }: { me?: SelfInfo | null; onWin: () => void }) {
+  const qc = useQueryClient()
+  const { data: site } = useSiteInfo()
+  const perUnit = site?.quota_per_unit
+  const bound = !!me?.bound
+
+  const view = useQuery({
+    queryKey: ['draw', me?.user.id],
+    queryFn: () => api.get<DrawView>('/api/draw'),
+    enabled: bound,
+    retry: false,
+  })
+
+  // picked 是用户翻开的那张牌;fresh 是本次刚抽到的结果(带 grant_status)。
+  const [picked, setPicked] = useState<number | null>(null)
+  const [fresh, setFresh] = useState<DrawResult | null>(null)
+
+  const drawMut = useMutation({
+    mutationFn: () => api.post<DrawResult>('/api/draw'),
+    onSuccess: (r) => {
+      setFresh(r)
+      qc.invalidateQueries({ queryKey: ['draw'] })
+      qc.invalidateQueries({ queryKey: ['me'] })
+      if (r.quota > 0) onWin()
+    },
+    onError: (e: Error) => {
+      toast.error(e.message)
+      setPicked(null)
+      // 「今天已经摇过了」等状态由后端权威判定,拉一次把卡片切到已抽态。
+      qc.invalidateQueries({ queryKey: ['draw'] })
+    },
+  })
+
+  const stored = view.data?.result
+  // 刚抽的结果优先;否则用今天早先抽过的记录。两者形状一致(前者多个 grant_status)。
+  const result = fresh ?? stored
+  const revealed = !!result
+  const drawing = drawMut.isPending
+  const disabled = !bound || !view.data?.enabled || drawing || revealed
+
+  const pick = (i: number) => {
+    if (disabled) return
+    setPicked(i)
+    drawMut.mutate()
+  }
+
+  // 奖励档位说明:从档位表里挑出会发额度的档,给用户看清「多数时候是空手」。
+  const prizeTiers = (view.data?.tiers ?? []).filter((t) => t.max_quota > 0)
+
   return (
     <Card className="mx-auto w-full max-w-xl p-6">
       <div className="flex items-baseline justify-between gap-3">
         <span className="font-medium text-clover-800">今日幸运指数</span>
-        <span className="flex items-baseline gap-2">
-          <span className="word-gold font-kai text-4xl leading-none">{score}</span>
-          <span className="font-kai text-lg text-gold-500">· {tier}</span>
-        </span>
+        {revealed ? (
+          <span className="flex items-baseline gap-2">
+            <span className="word-gold font-kai text-4xl leading-none">{result.roll}</span>
+            <span className="font-kai text-lg text-gold-500">· {result.tier_label}</span>
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            {bound ? '翻开一片四叶草' : '登录后每天可摇一次'}
+          </span>
+        )}
       </div>
-      <Progress value={score / 100} className="mt-3 h-2.5" />
-      <div className="mt-3 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>{quip}</span>
-        <button
-          className="flex shrink-0 items-center gap-1 text-clover-600 hover:text-clover-800"
-          onClick={() => setSeed(Math.random())}
-        >
-          <RefreshCw size={12} /> 重新抽
-        </button>
+
+      <Progress value={revealed ? result.roll / 100 : 0} className="mt-3 h-2.5" />
+
+      {/* 五片四叶草:未揭晓时可点,揭晓后只留翻开的那一片 */}
+      <div className="mt-5 grid grid-cols-5 gap-2 sm:gap-2.5">
+        {Array.from({ length: DRAW_CARD_COUNT }, (_, i) => {
+          const isPicked = picked === i
+          const settled = revealed || drawing
+          return (
+            <motion.button
+              key={i}
+              type="button"
+              disabled={disabled}
+              onClick={() => pick(i)}
+              className={cn(
+                'relative h-20 rounded-2xl transition-shadow sm:h-24',
+                !disabled && 'cursor-pointer hover:shadow-leaf',
+                disabled && !isPicked && 'cursor-default',
+              )}
+              /* 未选中的牌在揭晓后淡出下沉,把视觉留给翻开的那一片 */
+              animate={{
+                opacity: settled && !isPicked ? 0.28 : 1,
+                y: settled && !isPicked ? 6 : 0,
+                scale: isPicked && revealed ? 1.06 : 1,
+              }}
+              whileHover={disabled ? undefined : { y: -5 }}
+              whileTap={disabled ? undefined : { scale: 0.95 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+              aria-label={`第 ${i + 1} 片四叶草`}
+            >
+              {/* rotateY 翻牌:选中的牌翻到正面显示幸运数字 */}
+              <motion.span
+                className="block h-full w-full [transform-style:preserve-3d]"
+                animate={{ rotateY: isPicked && (revealed || drawing) ? 180 : 0 }}
+                transition={{ duration: 0.55, ease: 'easeInOut' }}
+              >
+                <span className="absolute inset-0 [backface-visibility:hidden]">
+                  <CardBack />
+                </span>
+                <span
+                  className="absolute inset-0 flex items-center justify-center rounded-2xl border border-gold-300 bg-cream [backface-visibility:hidden]"
+                  style={{ transform: 'rotateY(180deg)' }}
+                >
+                  {drawing && !revealed ? (
+                    <Spinner size={20} />
+                  ) : (
+                    <span className="word-gold font-kai text-2xl leading-none">
+                      {result?.roll}
+                    </span>
+                  )}
+                </span>
+              </motion.span>
+            </motion.button>
+          )
+        })}
       </div>
+
+      {/* 结果区 */}
+      {revealed ? (
+        <DrawOutcome result={result} fresh={fresh} perUnit={perUnit} />
+      ) : (
+        <div className="mt-4 space-y-2">
+          <p className="text-xs text-muted-foreground">
+            {bound
+              ? '每天一次,选一片翻开就知道今天的运气。多数时候只是个数字,偶尔能摘到额度。'
+              : '登录并绑定 new-api 后,每天可以摇一次幸运数字。'}
+          </p>
+          {prizeTiers.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {prizeTiers.map((t) => (
+                <Badge key={t.label} className="border border-gold-300 bg-cream text-gold-600">
+                  {t.roll_min === t.roll_max ? t.roll_min : `${t.roll_min}-${t.roll_max}`} ·{' '}
+                  {formatUSD(t.min_quota, perUnit)}
+                  {t.max_quota > t.min_quota && `~${formatUSD(t.max_quota, perUnit)}`}
+                  {t.reward_type === 'temporary' ? ' 限时' : ' 永久'}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </Card>
+  )
+}
+
+/** 揭晓后的结论区:中奖显示额度与类型,没中就只有一句吐槽。 */
+function DrawOutcome({
+  result,
+  fresh,
+  perUnit,
+}: {
+  result: Omit<DrawResult, 'grant_status'> & { grant_status?: DrawResult['grant_status'] }
+  fresh: DrawResult | null
+  perUnit?: number
+}) {
+  const { tone, note } = drawVerdict(result)
+  const won = result.quota > 0
+  // 发放失败只在「刚抽完」这一次能知道(视图接口不回 grant_status),
+  // 与签到一致:记录已写下,额度由自动重试器补发。
+  const grantFailed = fresh?.grant_status === 'failed'
+
+  return (
+    <div className="mt-4 space-y-2.5">
+      {won && (
+        <div className="flex items-center justify-between gap-2 rounded-2xl border border-gold-400 bg-gold-300/30 px-4 py-2.5 text-sm text-gold-600">
+          <span className="flex items-center gap-1.5">
+            {result.quota_type === 'temporary' ? <Timer size={14} /> : <Sparkles size={14} />}
+            {result.quota_type === 'temporary' ? '限时额度 · 今日有效' : '永久额度 · 已入账'}
+          </span>
+          <span className="word-gold font-kai text-xl">+{formatUSD(result.quota, perUnit)}</span>
+        </div>
+      )}
+      <p className="text-xs leading-6 text-muted-foreground">
+        {result.quip}
+        {note && <span className="text-gold-600"> · {note}</span>}
+      </p>
+      {grantFailed && (
+        <p className="text-xs text-red-500">额度发放遇到问题,已记录,稍后会自动补发。</p>
+      )}
+      {tone === 'none' && (
+        <p className="text-xs text-muted-foreground">明天 00:00 后可以再摇一次。</p>
+      )}
+    </div>
   )
 }
 
@@ -406,7 +592,7 @@ export default function HomePage() {
           </p>
         )}
 
-        {!me && <LuckyIndexCard />}
+        {!me && <LuckyDrawCard me={me} onWin={() => setRainSeed(Math.random())} />}
 
         {me && !me.bound && (
           <Card className="stagger mx-auto max-w-lg p-8 text-center">
@@ -448,7 +634,7 @@ export default function HomePage() {
             <div className="stagger grid items-start gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
               <CheckinCard view={checkinView.data} me={me} onChecked={onChecked} />
               <div className="space-y-6">
-                <LuckyIndexCard />
+                <LuckyDrawCard me={me} onWin={() => setRainSeed(Math.random())} />
                 <Card className="p-6">
                   <h4 className="flex items-center gap-2 font-bold text-clover-800">
                     <Sparkles size={16} className="text-gold-500" /> 小站玩法

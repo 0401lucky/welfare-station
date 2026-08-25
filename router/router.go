@@ -5,6 +5,7 @@ import (
 	"welfare/config"
 	"welfare/controller"
 	"welfare/middleware"
+	"welfare/service"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -21,8 +22,9 @@ func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
 		common.Ok(c, gin.H{
 			"site_name":      cfg.WelfareSiteName,
 			"quota_per_unit": cfg.QuotaPerUnit,
-			// 只读:供前端把「单次发放上限」换算成美元提示,校验仍以后端为准
-			"max_grant_quota": cfg.MaxGrantQuota,
+			// 只读:供前端把「单次发放上限」换算成美元提示,校验仍以后端为准。
+			// 上限存配置表(后台可改),环境变量只是首次运行的种子值。
+			"max_grant_quota": service.MaxGrantQuotaOf(db, cfg.MaxGrantQuota),
 			"newapi_url":      cfg.NewAPIPublicURL, // 为空时前端不渲染跳转入口
 			"notice":          "",                  // notice is editable later via admin settings
 		})
@@ -45,6 +47,12 @@ func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
 
 	// ---- M7: user grants (my records) ----
 	user.GET("/user/grants", app.GetMyGrants)
+
+	// ---- 每日幸运抽奖:摇一个 1-100 的幸运数字,按档位发奖 ----
+	// 每人每天一次,复用签到/活动共享的 RateLimitUser 令牌桶:一天一次的入口
+	// 吃不掉桶里的令牌,不必像小游戏那样单开一个。
+	user.GET("/draw", app.GetDraw)
+	user.POST("/draw", middleware.RateLimitUser(), app.DoDraw)
 
 	// ---- 小游戏:开局/存档/结算/放弃 ----
 	// 用独立令牌桶,不复用 RateLimitUser —— 后者是签到与活动共享的 10 令牌桶,
@@ -73,5 +81,9 @@ func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
 	admin.PUT("/admin/users/:id/status", app.AdminToggleUserStatus)
 	admin.GET("/admin/game-config", app.AdminGetGameConfig)
 	admin.PUT("/admin/game-config", app.AdminPutGameConfig)
+	admin.GET("/admin/draw-config", app.AdminGetDrawConfig)
+	admin.PUT("/admin/draw-config", app.AdminPutDrawConfig)
+	admin.GET("/admin/grant-config", app.AdminGetGrantConfig)
+	admin.PUT("/admin/grant-config", app.AdminPutGrantConfig)
 	admin.GET("/admin/budgets", app.AdminBudgets)
 }

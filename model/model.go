@@ -146,9 +146,32 @@ type GamePlay struct {
 
 func (GamePlay) TableName() string { return "w_game_plays" }
 
+// Draw 是一次已结算的每日幸运抽奖(w_draws),同时是 w_grants 的 ref。
+// uk_user_date 是幂等的根基:一个用户一天只能抽一次,并发的第二次撞唯一键。
+//
+// Roll 是服务端摇出的幸运数字(1-100),它既是展示用的「今日幸运指数」,
+// 也是奖励档位的唯一依据 —— 前端不参与任何随机,选哪张牌都不改变结果。
+type Draw struct {
+	ID       int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID   int64  `gorm:"not null;uniqueIndex:uk_user_draw_date,priority:1" json:"user_id"`
+	DrawDate string `gorm:"type:char(10);not null;uniqueIndex:uk_user_draw_date,priority:2" json:"draw_date"` // 配置时区的 YYYY-MM-DD
+	Roll     int    `gorm:"not null" json:"roll"`                                                             // 幸运数字 1-100
+	// TierLabel 是命中档位名的**快照**。站长事后改档位表不会篡改历史记录的展示,
+	// 与 w_grants.quota_type 冻结额度类型是同一个理由。
+	TierLabel string `gorm:"type:varchar(32);not null" json:"tier_label"`
+	Quota     int64  `gorm:"not null;default:0" json:"quota"` // 实发额度,0 = 未中奖或奖池已空
+	QuotaType string `gorm:"type:varchar(16);not null;default:permanent" json:"quota_type"`
+	// Reason 记录本次为何发/未发,供前端出文案与后台排查:
+	// ok | no_prize | over_site_budget
+	Reason    string    `gorm:"type:varchar(32);not null" json:"reason"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (Draw) TableName() string { return "w_draws" }
+
 // DailyBudget 记录某日某个池已发放的额度(w_daily_budgets)。
 // 预算上限存配置不存表,这里只记 used,改配置立即生效。
-// Scope: total | game | checkin | activity
+// Scope: total | game | checkin | activity | draw
 type DailyBudget struct {
 	Date      string    `gorm:"type:char(10);primaryKey" json:"date"`
 	Scope     string    `gorm:"type:varchar(16);primaryKey" json:"scope"`
@@ -169,6 +192,7 @@ func AllModels() []any {
 		&Setting{},
 		&GameSession{},
 		&GamePlay{},
+		&Draw{},
 		&DailyBudget{},
 	}
 }

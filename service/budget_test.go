@@ -83,7 +83,7 @@ func TestConsumeBudgetsUpToPartial(t *testing.T) {
 		BudgetScopeTotal: {Enabled: true, Daily: 800},
 	}
 
-	got, err := ConsumeBudgetsUpTo(db, budgetTestDate, 1000, rules)
+	got, err := ConsumeBudgetsUpTo(db, budgetTestDate, 1000, rules, []string{BudgetScopeGame, BudgetScopeTotal})
 	if err != nil || got != 500 {
 		t.Fatalf("共同额度应截断到 game 剩余 500: got=%d err=%v", got, err)
 	}
@@ -94,7 +94,7 @@ func TestConsumeBudgetsUpToPartial(t *testing.T) {
 		t.Errorf("total used: got %d, want 500", used)
 	}
 
-	got, err = ConsumeBudgetsUpTo(db, budgetTestDate, 1, rules)
+	got, err = ConsumeBudgetsUpTo(db, budgetTestDate, 1, rules, []string{BudgetScopeGame, BudgetScopeTotal})
 	if err != nil || got != 0 {
 		t.Fatalf("game 已耗尽后不应继续发放: got=%d err=%v", got, err)
 	}
@@ -150,7 +150,7 @@ func consumeBudgetsUpToInTx(db *gorm.DB, date string, requested int64, rules map
 		var got int64
 		err := db.Transaction(func(tx *gorm.DB) error {
 			var err error
-			got, err = ConsumeBudgetsUpTo(tx, date, requested, rules)
+			got, err = ConsumeBudgetsUpTo(tx, date, requested, rules, []string{BudgetScopeGame, BudgetScopeTotal})
 			return err
 		})
 		if err == nil {
@@ -403,7 +403,7 @@ func TestConsumeBudgetsUpToUsesGuardedUpdates(t *testing.T) {
 		BudgetScopeTotal: {Enabled: true, Daily: 100},
 	}
 	// 预热行，排除首次建行的 INSERT。
-	if _, err := ConsumeBudgetsUpTo(db, budgetTestDate, 1, rules); err != nil {
+	if _, err := ConsumeBudgetsUpTo(db, budgetTestDate, 1, rules, []string{BudgetScopeGame, BudgetScopeTotal}); err != nil {
 		t.Fatalf("预热: %v", err)
 	}
 
@@ -412,7 +412,7 @@ func TestConsumeBudgetsUpToUsesGuardedUpdates(t *testing.T) {
 	var got int64
 	err := session.Transaction(func(tx *gorm.DB) error {
 		var err error
-		got, err = ConsumeBudgetsUpTo(tx, budgetTestDate, 1, rules)
+		got, err = ConsumeBudgetsUpTo(tx, budgetTestDate, 1, rules, []string{BudgetScopeGame, BudgetScopeTotal})
 		return err
 	})
 	if err != nil || got != 1 {

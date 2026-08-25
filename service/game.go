@@ -476,7 +476,7 @@ func computeGameReward(tx *gorm.DB, cfg *GameConfig, rules GameRules, userID int
 
 	// 预算闸:两个池在同一事务内按固定顺序锁定,取共同剩余额度并用同一个
 	// 实际金额扣减。预算不足时仍可部分发放,只有共同余额为 0 才不发。
-	reward, err := ConsumeBudgetsUpTo(tx, today, requested, cfg.Budgets)
+	reward, err := ConsumeBudgetsUpTo(tx, today, requested, cfg.Budgets, []string{BudgetScopeGame, BudgetScopeTotal})
 	if err != nil {
 		return 0, "", nil, err
 	}

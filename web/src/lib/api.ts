@@ -168,7 +168,7 @@ export interface GrantRecord {
   id: number
   user_id: number
   newapi_user_id: number
-  type: 'checkin' | 'activity' | 'game' | 'manual'
+  type: 'checkin' | 'activity' | 'game' | 'draw' | 'manual'
   ref_id: number
   quota: number
   quota_type: QuotaType
@@ -370,4 +370,56 @@ export interface GameSubmitResp {
   reason: GameReason
   grant_status: 'success' | 'failed' | 'none'
   tier_hit: GameTier | null
+}
+
+// ---- 每日幸运抽奖(draw_config / /api/draw)----
+
+/**
+ * 一档抽奖结果。命中条件是幸运数字 roll ∈ [roll_min, roll_max](闭区间,1-100)。
+ * 后端保存时校验档位无缝铺满 1~100,因此任何 roll 必然命中且只命中一档。
+ * min_quota/max_quota 同为 0 即「纯趣味数字」档,不发额度。
+ */
+export interface DrawTier {
+  label: string
+  quip: string
+  roll_min: number
+  roll_max: number
+  reward_type: QuotaType
+  min_quota: number
+  max_quota: number
+  /** 仅对永久额度档生效:全站每日中奖名额,满后降级为限时额度。0 = 不限。 */
+  daily_winner_limit: number
+}
+
+export interface DrawConfig {
+  enabled: boolean
+  timezone: string
+  tiers: DrawTier[]
+}
+
+/** 本次抽奖发/未发额度的原因,前端据此出文案。 */
+export type DrawReason =
+  | 'ok'
+  | 'no_prize'
+  | 'jackpot_fallback'
+  | 'over_site_budget'
+
+/** 一次已结算的抽奖结果。quota=0 表示没中奖(或当日奖池已空,见 reason)。 */
+export interface DrawResult {
+  roll: number
+  tier_label: string
+  quip: string
+  quota: number
+  quota_type: QuotaType
+  reason: DrawReason
+  grant_status: 'success' | 'failed' | 'none'
+}
+
+/** GET /api/draw:今日抽奖状态。已抽过则 result 为当日结果(不含 grant_status)。 */
+export interface DrawView {
+  enabled: boolean
+  drawn_today: boolean
+  today: string
+  tiers: DrawTier[]
+  result?: Omit<DrawResult, 'grant_status'> & { created_at: string }
 }

@@ -173,10 +173,11 @@ const (
 	BudgetScopeGame     = "game"
 	BudgetScopeCheckin  = "checkin"
 	BudgetScopeActivity = "activity"
+	BudgetScopeDraw     = "draw"
 )
 
 // BudgetScopes 是允许的池名,配置里出现其他 scope 一律拒绝。
-var BudgetScopes = []string{BudgetScopeTotal, BudgetScopeGame, BudgetScopeCheckin, BudgetScopeActivity}
+var BudgetScopes = []string{BudgetScopeTotal, BudgetScopeGame, BudgetScopeCheckin, BudgetScopeActivity, BudgetScopeDraw}
 
 // defaultGameTimezone 是时区缺失或非法时的回落值。
 const defaultGameTimezone = "Asia/Shanghai"
@@ -209,6 +210,7 @@ func DefaultGameConfig() *GameConfig {
 			BudgetScopeGame:     {Enabled: true, Daily: 10000000},
 			BudgetScopeCheckin:  {Enabled: false, Daily: 25000000},
 			BudgetScopeActivity: {Enabled: false, Daily: 0},
+			BudgetScopeDraw:     {Enabled: true, Daily: 10000000},
 		},
 	}
 }
@@ -346,7 +348,7 @@ func isKnownBudgetScope(scope string) bool {
 // 与 BudgetScopes 的区别:后者是配置结构上认识的池名,前者是实际会被 TryConsume
 // 扣减的池。checkin / activity 目前只有配置没有接入,因此不在此列——把两者分开,
 // 前端才能如实告诉站长哪些开关是有效的。接入后把对应 scope 加进来即可。
-var WiredBudgetScopes = []string{BudgetScopeTotal, BudgetScopeGame}
+var WiredBudgetScopes = []string{BudgetScopeTotal, BudgetScopeGame, BudgetScopeDraw}
 
 // isWiredBudgetScope 判断该池是否已接入发放链路(即开了之后真的会拦)。
 func isWiredBudgetScope(scope string) bool {

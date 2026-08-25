@@ -9,12 +9,14 @@ import { Clover } from '@/components/Clover'
 import { api, Page, GrantRecord } from '@/lib/api'
 import { formatDateTime } from '@/lib/format'
 
-const typeMap: Record<string, string> = { checkin: '签到', activity: '活动', manual: '手动' }
+const typeMap: Record<string, string> = { checkin: '签到', activity: '活动', game: '小游戏', draw: '幸运抽奖', manual: '手动' }
 
-/* 类型决定叶片配色:签到翠绿、活动鎏金、手动浅绿 */
+/* 类型决定叶片配色:签到翠绿、活动鎏金、小游戏浅绿、抽奖鎏金、手动浅绿 */
 const typePetal: Record<string, [string, string]> = {
   checkin: ['#35a465', '#5bbc82'],
   activity: ['#ddb45f', '#eed9a4'],
+  game: ['#5bbc82', '#8fd6a8'],
+  draw: ['#ddb45f', '#eed9a4'],
   manual: ['#8fd6a8', '#bce3c9'],
 }
 

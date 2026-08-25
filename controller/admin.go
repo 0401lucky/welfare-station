@@ -412,8 +412,10 @@ func (a *App) AdminManualGrant(c *gin.Context) {
 		common.BadRequest(c, "JSON 格式错误")
 		return
 	}
-	if body.Quota == nil || *body.Quota <= 0 || *body.Quota > a.Config.MaxGrantQuota {
-		common.BadRequest(c, "quota 必须大于 0 且不超过上限 "+strconv.FormatInt(a.Config.MaxGrantQuota, 10))
+	// 上限现在存配置表,环境变量只是首次运行的种子值(service.GetGrantConfig)。
+	maxGrant := service.MaxGrantQuotaOf(a.DB, a.Config.MaxGrantQuota)
+	if body.Quota == nil || *body.Quota <= 0 || *body.Quota > maxGrant {
+		common.BadRequest(c, "quota 必须大于 0 且不超过上限 "+strconv.FormatInt(maxGrant, 10))
 		return
 	}
 
@@ -528,11 +530,64 @@ func (a *App) AdminPutGameConfig(c *gin.Context) {
 	}
 	// 校验与归一化(档位按 tile 升序、时区回落、reward_type 兜底)全在
 	// SaveGameConfig 里就地完成,这里不重复实现,失败信息原样透出给站长。
-	if err := service.SaveGameConfig(a.DB, &body, a.Config.MaxGrantQuota); err != nil {
+	if err := service.SaveGameConfig(a.DB, &body, service.MaxGrantQuotaOf(a.DB, a.Config.MaxGrantQuota)); err != nil {
 		common.BadRequest(c, err.Error())
 		return
 	}
 	// 回的是归一化之后的 body,前端拿到的就是落库的那一份。
+	common.Ok(c, body)
+}
+
+// GET/PUT /api/admin/draw-config — 读/写每日抽奖的档位表。
+// 预算上限不在这里,而在 game-config 的 budgets.draw 池,两边共用同一套预算基础设施。
+func (a *App) AdminGetDrawConfig(c *gin.Context) {
+	cfg, err := service.GetDrawConfig(a.DB, service.MaxGrantQuotaOf(a.DB, a.Config.MaxGrantQuota))
+	if err != nil {
+		common.InternalError(c, "读取抽奖配置失败")
+		return
+	}
+	common.Ok(c, cfg)
+}
+
+func (a *App) AdminPutDrawConfig(c *gin.Context) {
+	var body service.DrawConfig
+	if err := c.ShouldBindJSON(&body); err != nil {
+		common.BadRequest(c, "JSON 格式错误")
+		return
+	}
+	// 校验与归一化(档位按 roll_min 升序、区间必须铺满 1~100、时区回落、金额上限)
+	// 全在 SaveDrawConfig 里就地完成,失败信息原样透出给站长。
+	if err := service.SaveDrawConfig(a.DB, &body, service.MaxGrantQuotaOf(a.DB, a.Config.MaxGrantQuota)); err != nil {
+		common.BadRequest(c, err.Error())
+		return
+	}
+	// 回的是归一化之后的 body,前端拿到的就是落库的那一份。
+	common.Ok(c, body)
+}
+
+// GET/PUT /api/admin/grant-config — 读/写单次发放上限。
+//
+// 这个上限同时约束手动发放、小游戏档位与抽奖档位。它此前只是 MAX_GRANT_QUOTA
+// 环境变量(改一次要重启),现在存配置表,环境变量只作首次运行的种子值。
+func (a *App) AdminGetGrantConfig(c *gin.Context) {
+	cfg, err := service.GetGrantConfig(a.DB, a.Config.MaxGrantQuota)
+	if err != nil {
+		common.InternalError(c, "读取发放限制配置失败")
+		return
+	}
+	common.Ok(c, cfg)
+}
+
+func (a *App) AdminPutGrantConfig(c *gin.Context) {
+	var body service.GrantConfig
+	if err := c.ShouldBindJSON(&body); err != nil {
+		common.BadRequest(c, "JSON 格式错误")
+		return
+	}
+	if err := service.SaveGrantConfig(a.DB, &body); err != nil {
+		common.BadRequest(c, err.Error())
+		return
+	}
 	common.Ok(c, body)
 }
 

@@ -3,24 +3,25 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle, BarChart3, CheckCircle2, CircleDollarSign, Clock, FileText,
-  Gamepad2, Gift, LayoutDashboard, RefreshCw, Settings2, Sprout, Trash2, Users, X,
+  Clover as CloverIcon, Gamepad2, Gift, LayoutDashboard, RefreshCw, Settings2, Sprout, Trash2, Users, X,
 } from 'lucide-react'
 import Header from '@/components/Header'
 import Quota from '@/components/Quota'
 import { Clover } from '@/components/Clover'
 import { Badge, Button, Card, ConfirmDialog, Input, MoneyInput, Progress, Select, Spinner, Table, Textarea } from '@/components/ui'
 import { toast } from '@/components/Toast'
-import { api, ActivityClaim, AdminActivity, BudgetRule, CheckinConfig, Dashboard, GameConfig, GameRules, GameTier, GrantPage, GrantRecord, QuotaType, User } from '@/lib/api'
+import { api, ActivityClaim, AdminActivity, BudgetRule, CheckinConfig, Dashboard, DrawConfig, DrawTier, GameConfig, GameRules, GameTier, GrantPage, GrantRecord, QuotaType, User } from '@/lib/api'
 import { useMe, useSiteInfo } from '@/hooks/useMe'
 import { formatDateTime, formatUSD, hhmmToMinutes, minutesToHHMM } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-type Tab = 'dashboard' | 'config' | 'game' | 'activities' | 'grants' | 'users' | 'manual'
+type Tab = 'dashboard' | 'config' | 'game' | 'draw' | 'activities' | 'grants' | 'users' | 'manual'
 
 const tabs: { id: Tab; label: string; icon: any }[] = [
   { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard },
   { id: 'config', label: '签到配置', icon: Settings2 },
   { id: 'game', label: '游戏设置', icon: Gamepad2 },
+  { id: 'draw', label: '抽奖设置', icon: CloverIcon },
   { id: 'activities', label: '活动管理', icon: Gift },
   { id: 'grants', label: '发放流水', icon: FileText },
   { id: 'users', label: '用户管理', icon: Users },
@@ -73,8 +74,9 @@ const TILE_OPTIONS = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192
  * 开了也不会拦任何东西,所以开关禁用并如实标注(后端 SaveGameConfig 同样会拒绝启用)。
  */
 const BUDGET_SCOPES: { scope: string; label: string; note?: string; wired: boolean }[] = [
-  { scope: 'total', label: '全站总池', note: '当前仅小游戏计入', wired: true },
+  { scope: 'total', label: '全站总池', note: '当前计入小游戏与幸运抽奖', wired: true },
   { scope: 'game', label: '小游戏', wired: true },
+  { scope: 'draw', label: '幸运抽奖', wired: true },
   { scope: 'checkin', label: '签到', note: '尚未接入,开了也不会生效', wired: false },
   { scope: 'activity', label: '活动', note: '尚未接入,开了也不会生效', wired: false },
 ]
@@ -193,6 +195,7 @@ export default function AdminPage() {
             {tab === 'dashboard' && <DashboardTab />}
             {tab === 'config' && <ConfigTab />}
             {tab === 'game' && <GameTab />}
+            {tab === 'draw' && <DrawTab />}
             {tab === 'activities' && <ActivitiesTab />}
             {tab === 'grants' && <GrantsTab />}
             {tab === 'users' && <UsersTab />}
@@ -386,6 +389,66 @@ function ConfigTab() {
 }
 
 /** 后台「游戏设置」:游戏规则 + 两级每日预算池。与 ConfigTab 同构的草稿模式。 */
+/**
+ * 「单次发放上限」卡片。这个上限同时约束手动发放、小游戏档位与抽奖档位,
+ * 因此放在最上面单列一张卡,而不是塞进 2048 或抽奖的规则里。
+ *
+ * 它原先是 MAX_GRANT_QUOTA 环境变量(改一次要重启),现在存配置表,改完立即生效。
+ */
+function GrantLimitCard() {
+  const qc = useQueryClient()
+  const perUnit = usePerUnit()
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin-grant-config'],
+    queryFn: () => api.get<{ max_grant_quota: number }>('/api/admin/grant-config'),
+  })
+  const [draft, setDraft] = useState<number | null>(null)
+
+  const save = useMutation({
+    mutationFn: (v: number) => api.put('/api/admin/grant-config', { max_grant_quota: v }),
+    onSuccess: () => {
+      toast.success('单次发放上限已保存')
+      setDraft(null)
+      qc.invalidateQueries({ queryKey: ['admin-grant-config'] })
+      // site/info 带着这个值给前端出提示,档位页的标红也依赖它。
+      qc.invalidateQueries({ queryKey: ['site-info'] })
+      qc.invalidateQueries({ queryKey: ['admin-draw-config'] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const value = draft ?? data?.max_grant_quota ?? 0
+  const dirty = draft !== null && draft !== data?.max_grant_quota
+
+  return (
+    <Card className="space-y-3 p-5">
+      <h3 className="text-sm font-bold text-clover-800">单次发放上限</h3>
+      <p className="text-xs leading-6 text-muted-foreground">
+        一笔发放最多能给多少,同时约束
+        <span className="font-medium text-clover-700">手动发放、小游戏奖励档位、抽奖奖励档位</span>。
+        任何一档金额超过它都会保存失败。改完立即生效,不用重启。
+      </p>
+      {isLoading ? (
+        <Spinner size={20} />
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+          <MoneyInput perUnit={perUnit} value={value} onChange={(q) => setDraft(q)} />
+          <Button
+            variant={dirty ? 'gradient' : 'outline'}
+            disabled={!dirty || save.isPending}
+            onClick={() => draft !== null && save.mutate(draft)}
+          >
+            {save.isPending ? <Spinner size={18} /> : '保存上限'}
+          </Button>
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">
+        环境变量 MAX_GRANT_QUOTA 只在首次部署时用作初始值,之后以这里为准。
+      </p>
+    </Card>
+  )
+}
+
 function GameTab() {
   const qc = useQueryClient()
   const perUnit = usePerUnit()
@@ -444,6 +507,8 @@ function GameTab() {
   return (
     <div className="space-y-4">
       <TabTitle icon={Gamepad2}>游戏设置</TabTitle>
+
+      <GrantLimitCard />
 
       <Card className="space-y-4 p-5">
         <h3 className="text-sm font-bold text-clover-800">2048</h3>
@@ -622,6 +687,234 @@ function GameTab() {
           if (deletingTier !== null) {
             setRules({ tiers: (rules?.tiers ?? []).filter((_, i) => i !== deletingTier) })
           }
+          setDeletingTier(null)
+        }}
+      />
+    </div>
+  )
+}
+
+/**
+ * 后台「抽奖设置」:幸运数字档位表。与 GameTab 同构的草稿模式。
+ *
+ * 每日预算上限不在这里,而在「游戏设置」的全站每日预算里(budgets.draw 池),
+ * 两边共用同一套预算基础设施,不另造一份。
+ */
+function DrawTab() {
+  const qc = useQueryClient()
+  const perUnit = usePerUnit()
+  const { data: site } = useSiteInfo()
+  // 单次发放上限来自 MAX_GRANT_QUOTA 环境变量,后台改不了。填超了后端会拒绝保存,
+  // 所以这里如实标出上限并就地标红,免得站长填完点保存才看到一句原始整数报错。
+  const maxQuota = site?.max_grant_quota
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin-draw-config'],
+    queryFn: () => api.get<DrawConfig>('/api/admin/draw-config'),
+  })
+  const [cfg, setCfg] = useState<DrawConfig | null>(null)
+  const [deletingTier, setDeletingTier] = useState<number | null>(null)
+
+  const save = useMutation({
+    mutationFn: (c: DrawConfig) => api.put('/api/admin/draw-config', c),
+    onSuccess: () => {
+      toast.success('抽奖设置已保存')
+      qc.invalidateQueries({ queryKey: ['admin-draw-config'] })
+      // 前台抽奖卡片的档位说明也要跟着刷新
+      qc.invalidateQueries({ queryKey: ['draw'] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const localCfg = cfg ?? data
+  const tiers = localCfg?.tiers ?? []
+
+  const patch = (p: Partial<DrawConfig>) => setCfg((prev) => ({ ...(prev ?? data)!, ...p }))
+  const setTier = (idx: number, p: Partial<DrawTier>) =>
+    patch({ tiers: tiers.map((t, i) => (i === idx ? { ...t, ...p } : t)) })
+
+  const addTier = () => {
+    // 新档默认接在最后一档之后,占掉剩下的区间;站长通常就是想细分尾部。
+    const last = tiers[tiers.length - 1]
+    const from = last ? Math.min(last.roll_max + 1, 100) : 1
+    patch({
+      tiers: [...tiers, {
+        label: '新档位', quip: '', roll_min: from, roll_max: 100,
+        reward_type: 'temporary', min_quota: 0, max_quota: 0, daily_winner_limit: 0,
+      }],
+    })
+  }
+
+  // 区间连续性自检:后端保存时会硬校验,这里提前给出可见提示,免得填一半才被拒。
+  const coverageError = (() => {
+    if (!tiers.length) return '至少要有一档'
+    const sorted = [...tiers].sort((a, b) => a.roll_min - b.roll_min)
+    let expect = 1
+    for (const t of sorted) {
+      if (t.roll_min !== expect) {
+        return `档位必须无缝覆盖 1~100:期望下一档从 ${expect} 开始,实际从 ${t.roll_min} 开始`
+      }
+      expect = t.roll_max + 1
+    }
+    return expect === 101 ? null : `最后一档应止于 100,实际止于 ${expect - 1}`
+  })()
+
+  // 有档位超过单次发放上限时,保存必然被后端拒绝,提前锁住按钮。
+  const overLimitTiers = maxQuota == null ? [] : tiers.filter((t) => t.max_quota > maxQuota)
+
+  if (isLoading) return <Loading />
+
+  return (
+    <div className="space-y-4">
+      <TabTitle icon={CloverIcon}>抽奖设置</TabTitle>
+
+      <Card className="space-y-4 p-5">
+        <label className="flex items-center justify-between rounded-2xl border border-clover-100 bg-clover-50/70 px-4 py-3">
+          <span className="flex items-center gap-2 font-medium text-clover-800">
+            <CloverIcon size={18} className="text-clover-500" /> 启用每日幸运抽奖
+          </span>
+          <input
+            type="checkbox"
+            checked={!!localCfg?.enabled}
+            onChange={(e) => patch({ enabled: e.target.checked })}
+            className="h-5 w-5 accent-clover-500"
+          />
+        </label>
+
+        <p className="text-xs leading-6 text-muted-foreground">
+          每人每天可抽 <span className="font-medium text-clover-700">1 次</span>,服务端摇一个 1~100 的幸运数字,
+          数字落在哪一档就发哪一档的奖。前端的五片四叶草只是揭晓动画,
+          <span className="font-medium text-clover-700">选哪片都不影响结果</span>。
+          每日预算上限在「游戏设置 → 全站每日预算 → 幸运抽奖」里配。
+        </p>
+
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label className="text-xs text-muted-foreground">奖励档位(按幸运数字区间)</label>
+            <Button size="sm" variant="outline" onClick={addTier}>+ 加一档</Button>
+          </div>
+          <p className="mb-2 text-xs text-muted-foreground">
+            档位必须<span className="font-medium text-clover-700">无缝铺满 1~100</span>且互不重叠。
+            额度上下界都填 0 = 这一档只给数字不发额度。区间宽度就是命中概率(如 91~98 即 8%)。
+            {maxQuota != null && (
+              <>
+                {' '}单档金额不得超过<span className="font-medium text-clover-700">单次发放上限 {formatUSD(maxQuota, perUnit)}</span>
+                (由 MAX_GRANT_QUOTA 环境变量决定,后台改不了;要发更大的奖需先调高它并重启)。
+              </>
+            )}
+          </p>
+
+          {coverageError && (
+            <p className="mb-2 flex items-start gap-1.5 rounded-2xl border border-gold-300 bg-cream px-3 py-2 text-xs text-gold-600">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" /> {coverageError}
+            </p>
+          )}
+
+          <div className="space-y-3">
+            {tiers.map((t, i) => (
+              <div key={i} className="space-y-2 rounded-2xl border border-clover-100 bg-clover-50/40 px-3 py-3">
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1.2fr)_auto_auto_auto]">
+                  <Input
+                    value={t.label}
+                    placeholder="档位名(如 欧皇附体)"
+                    onChange={(e) => setTier(i, { label: e.target.value })}
+                  />
+                  <Input
+                    type="number"
+                    className="sm:w-20"
+                    value={String(t.roll_min)}
+                    onChange={(e) => setTier(i, { roll_min: +e.target.value })}
+                  />
+                  <Input
+                    type="number"
+                    className="sm:w-20"
+                    value={String(t.roll_max)}
+                    onChange={(e) => setTier(i, { roll_max: +e.target.value })}
+                  />
+                  <Button size="sm" variant="danger" onClick={() => setDeletingTier(i)}>
+                    <Trash2 size={14} /> 删除
+                  </Button>
+                </div>
+                <Input
+                  value={t.quip}
+                  placeholder="揭晓文案(前端在结果下方展示这句话)"
+                  onChange={(e) => setTier(i, { quip: e.target.value })}
+                />
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
+                  <div>
+                    <label className="mb-1 block text-xs text-muted-foreground">额度下界($)</label>
+                    <MoneyInput perUnit={perUnit} value={t.min_quota} onChange={(q) => setTier(i, { min_quota: q })} />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-muted-foreground">额度上界($)</label>
+                    <MoneyInput perUnit={perUnit} value={t.max_quota} onChange={(q) => setTier(i, { max_quota: q })} />
+                    {maxQuota != null && t.max_quota > maxQuota && (
+                      <p className="mt-1 text-xs text-red-500">
+                        超过单次发放上限 {formatUSD(maxQuota, perUnit)},保存会被拒绝
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-muted-foreground">
+                      每日名额{t.reward_type === 'permanent' ? '' : '(仅永久档生效)'}
+                    </label>
+                    <Input
+                      type="number"
+                      value={String(t.daily_winner_limit ?? 0)}
+                      onChange={(e) => setTier(i, { daily_winner_limit: +e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {([
+                    ['temporary', '限时额度'],
+                    ['permanent', '永久余额'],
+                  ] as [QuotaType, string][]).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setTier(i, { reward_type: value })}
+                      className={cn(
+                        'rounded-full border px-3.5 py-1 text-xs transition-colors',
+                        (t.reward_type ?? 'permanent') === value
+                          ? 'border-transparent bg-clover-gradient text-white shadow-leaf-sm'
+                          : 'border-clover-100 bg-white/80 text-clover-700 hover:bg-clover-50',
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <span className="text-xs text-muted-foreground">
+                    命中概率 {Math.max(0, t.roll_max - t.roll_min + 1)}%
+                    {t.max_quota <= 0 && ' · 该档不发额度'}
+                  </span>
+                </div>
+                {t.reward_type === 'permanent' && (t.daily_winner_limit ?? 0) > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    全站每日至多 {t.daily_winner_limit} 人拿到该档永久额度,名额满后金额照给但降级为限时额度。
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <Button
+          variant="gradient"
+          disabled={!localCfg || save.isPending || overLimitTiers.length > 0}
+          onClick={() => localCfg && save.mutate(localCfg)}
+        >
+          {save.isPending ? <Spinner size={18} /> : '保存设置'}
+        </Button>
+      </Card>
+
+      <ConfirmDialog
+        open={deletingTier !== null}
+        title="删除这一档?"
+        description="删除后档位区间会出现空档,需要把相邻档位的范围补齐才能保存。"
+        confirmText="删除"
+        onCancel={() => setDeletingTier(null)}
+        onConfirm={() => {
+          if (deletingTier !== null) patch({ tiers: tiers.filter((_, i) => i !== deletingTier) })
           setDeletingTier(null)
         }}
       />
