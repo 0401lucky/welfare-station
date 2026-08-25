@@ -242,6 +242,15 @@ func GetGameConfig(db *gorm.DB) (*GameConfig, error) {
 	if c.Budgets == nil {
 		c.Budgets = map[string]BudgetRule{}
 	}
+	// draw 池是抽奖里程碑新增的:存量 game_config 里没有这个键,而 drawBudgetRules
+	// 会为缺键的情况回落一个**启用的**保底上限。若这里不补,后台预算页读到的就是
+	// 零值(未开启、预算 0),界面会显示「未开启,该来源不受限额约束」——而实际上
+	// 抽奖正按保底值扣着预算。一个与实际行为相反的开关比没有开关更糟,所以读取时
+	// 就把它补齐,让后台看到的与真正生效的一致。
+	// 仅在内存里补:站长在后台按一次保存就会持久化下来。
+	if _, ok := c.Budgets[BudgetScopeDraw]; !ok {
+		c.Budgets[BudgetScopeDraw] = drawDefaultBudget
+	}
 	for name, r := range c.Games {
 		// 空值/未知值按永久额度解释,与 checkin_config 一致。
 		r.RewardType = NormalizeQuotaType(r.RewardType)

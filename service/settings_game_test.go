@@ -109,8 +109,14 @@ func TestGetGameConfigLegacyJSON(t *testing.T) {
 	if rules.DailyClaimLimit != 0 || rules.UserDailyCap != 0 || rules.CooldownSeconds != 0 || rules.Tiers != nil {
 		t.Errorf("missing fields should be zero values, got %+v", rules)
 	}
-	if cfg.Budgets == nil || len(cfg.Budgets) != 0 {
-		t.Errorf("missing budgets should read as an empty map, got %v", cfg.Budgets)
+	// 缺 budgets 的存量配置读出来只应含 draw 一个键:draw 池由 GetGameConfig 主动
+	// 补齐(理由见该处注释——drawBudgetRules 对缺键会按保底值真扣预算,不补齐会让
+	// 后台显示成「未开启、不受限额约束」,与实际行为相反)。其余池仍保持「缺就是缺」。
+	if cfg.Budgets == nil || len(cfg.Budgets) != 1 {
+		t.Errorf("missing budgets should read as draw-only map, got %v", cfg.Budgets)
+	}
+	if _, ok := cfg.Budgets[BudgetScopeDraw]; !ok {
+		t.Errorf("draw 池必须被补齐,否则后台预算页会骗人, got %v", cfg.Budgets)
 	}
 	if cfg.Timezone != "Asia/Shanghai" {
 		t.Errorf("missing timezone should fall back to Asia/Shanghai, got %q", cfg.Timezone)

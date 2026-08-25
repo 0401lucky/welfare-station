@@ -533,3 +533,34 @@ func TestMaxGrantQuotaOfNeverReturnsZero(t *testing.T) {
 		t.Fatalf("坏配置应回落环境变量 5000000,实际 %d", got)
 	}
 }
+
+// TestGetGameConfigBackfillsDrawScope 锁住「后台看到的 = 实际生效的」。
+//
+// 存量 game_config 里没有 draw 键,而 drawBudgetRules 会为缺键回落一个启用的保底
+// 上限。若读取时不补齐,后台预算页就会显示「未开启,不受限额约束」,而抽奖实际正
+// 按保底值扣预算 —— 一个与实际行为相反的开关比没有开关更糟。
+func TestGetGameConfigBackfillsDrawScope(t *testing.T) {
+	db := grantDB(t)
+	// 模拟存量配置:有 game/total,没有 draw。
+	legacy := `{"timezone":"Asia/Shanghai","games":{},"budgets":{"game":{"enabled":true,"daily":10000000},"total":{"enabled":false,"daily":0}}}`
+	if err := SetSetting(db, GameConfigKey, legacy); err != nil {
+		t.Fatalf("写入存量配置: %v", err)
+	}
+
+	cfg, err := GetGameConfig(db)
+	if err != nil {
+		t.Fatalf("读取: %v", err)
+	}
+	got, ok := cfg.Budgets[BudgetScopeDraw]
+	if !ok {
+		t.Fatal("读取存量配置时必须补齐 draw 池,否则后台会显示成「未开启」")
+	}
+	// 补齐的值必须与 drawBudgetRules 实际使用的保底值一致,否则界面仍在骗人。
+	want := drawBudgetRules(cfg)[BudgetScopeDraw]
+	if got != want {
+		t.Fatalf("后台看到的 draw 池 %+v 与实际生效的 %+v 不一致", got, want)
+	}
+	if !got.Enabled || got.Daily <= 0 {
+		t.Fatalf("补齐的 draw 池应是启用且有上限的,实际 %+v", got)
+	}
+}
