@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle, BarChart3, CheckCircle2, CircleDollarSign, Clock, FileText,
-  Clover as CloverIcon, Gamepad2, Gift, LayoutDashboard, RefreshCw, Settings2, Sprout, Trash2, Users, X,
+  Clover as CloverIcon, Gamepad2, Gift, LayoutDashboard, RefreshCw, Settings2, Sparkles, Sprout, Trash2, Users, X,
 } from 'lucide-react'
 import Header from '@/components/Header'
 import Quota from '@/components/Quota'
@@ -213,54 +213,144 @@ const statTone: Record<string, string> = {
   alert: 'border-red-100 bg-red-50 text-red-500',
 }
 
+/** 仪表盘的一格数字。gold 用书法体+金色,留给「钱」类指标。 */
+function Stat({
+  label,
+  value,
+  icon: Icon,
+  tone = 'clover',
+  gold,
+  note,
+}: {
+  label: string
+  value: ReactNode
+  icon: any
+  tone?: string
+  gold?: boolean
+  note?: string
+}) {
+  return (
+    <Card className="p-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="truncate text-xs text-muted-foreground">{label}</p>
+        <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border', statTone[tone])}>
+          <Icon size={14} />
+        </span>
+      </div>
+      <p className={cn('mt-2 truncate text-2xl font-bold', gold ? 'word-gold font-kai' : 'text-clover-800')}>
+        {value}
+      </p>
+      {note && <p className="mt-1 truncate text-xs text-muted-foreground">{note}</p>}
+    </Card>
+  )
+}
+
+/** 分区小标题 */
+function StatGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div>
+      <h3 className="mb-2 text-sm font-bold text-clover-800">{title}</h3>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">{children}</div>
+    </div>
+  )
+}
+
 function DashboardTab() {
   const { data, isLoading } = useQuery({
     queryKey: ['admin-dashboard'],
     queryFn: () => api.get<Dashboard>('/api/admin/dashboard'),
+    // 运营数字随时在变,进页面就拉一次新的,别拿缓存糊弄人。
+    refetchOnMount: 'always',
   })
   if (isLoading) return <Loading />
-  const items = [
-    { label: '今日签到', value: data?.today_checkins ?? 0, icon: Sprout, tone: 'clover' },
-    { label: '今日领取', value: data?.today_claims ?? 0, icon: Gift, tone: 'clover' },
-    { label: '累计发放', value: data?.total_grants ?? 0, icon: FileText, tone: 'clover' },
-    {
-      label: '累计额度',
-      value: <Quota value={data?.total_quota} />,
-      icon: CircleDollarSign,
-      tone: 'gold',
-      gold: true,
-    },
-    { label: '失败待重试', value: data?.failed_grants ?? 0, icon: AlertTriangle, tone: 'alert' },
-    { label: '处理中', value: data?.pending_grants ?? 0, icon: Clock, tone: 'gold' },
-  ]
+
+  const d = data
+  const bySource = d?.today_quota_by_source ?? {}
+  const byKind = d?.today_quota_by_kind ?? {}
+
+  // 中奖率:分母是今日参与抽奖的人数,0 人时不显示百分比而不是显示 NaN%。
+  const draws = d?.today_draws ?? 0
+  const winners = d?.today_draw_winners ?? 0
+  const winRate = draws > 0 ? `中奖率 ${Math.round((winners / draws) * 100)}%` : '今天还没人抽'
+
+  const plays = d?.today_game_plays ?? 0
+  const gameRewards = d?.today_game_rewards ?? 0
+
+  const bound = d?.bound_users ?? 0
+  const totalUsers = d?.total_users ?? 0
+  const boundRate = totalUsers > 0 ? `占比 ${Math.round((bound / totalUsers) * 100)}%` : undefined
+
   return (
-    <div className="space-y-4">
-      <TabTitle icon={BarChart3}>仪表盘</TabTitle>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
-        {items.map((it) => (
-          <Card key={it.label} className="p-4">
-            <div className="flex items-center justify-between gap-2">
-              <p className="truncate text-xs text-muted-foreground">{it.label}</p>
-              <span
-                className={cn(
-                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border',
-                  statTone[it.tone],
-                )}
-              >
-                <it.icon size={14} />
-              </span>
-            </div>
-            <p
-              className={cn(
-                'mt-2 truncate text-2xl font-bold',
-                it.gold ? 'word-gold font-kai' : 'text-clover-800',
-              )}
-            >
-              {it.value}
-            </p>
-          </Card>
-        ))}
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <TabTitle icon={BarChart3}>仪表盘</TabTitle>
+        {d?.today && (
+          <span className="text-xs text-muted-foreground">
+            统计日 {d.today} · 时区 {d.timezone}
+          </span>
+        )}
       </div>
+
+      <StatGroup title="今日参与">
+        <Stat label="签到人数" value={d?.today_checkins ?? 0} icon={Sprout} />
+        <Stat label="抽奖人数" value={draws} icon={CloverIcon} note={winRate} />
+        <Stat
+          label="抽奖中奖人数"
+          value={winners}
+          icon={Sparkles}
+          tone="gold"
+          note={`其中永久大奖 ${d?.today_draw_jackpots ?? 0} 人`}
+        />
+        <Stat
+          label="小游戏对局"
+          value={plays}
+          icon={Gamepad2}
+          note={plays > 0 ? `其中 ${gameRewards} 局拿到奖励` : '今天还没人玩'}
+        />
+      </StatGroup>
+
+      <StatGroup title="今日发放额度">
+        <Stat label="合计(已到账)" value={<Quota value={d?.today_quota} />} icon={CircleDollarSign} tone="gold" gold />
+        <Stat label="签到" value={<Quota value={bySource.checkin ?? 0} />} icon={Sprout} />
+        <Stat label="抽奖" value={<Quota value={bySource.draw ?? 0} />} icon={CloverIcon} />
+        <Stat label="小游戏" value={<Quota value={bySource.game ?? 0} />} icon={Gamepad2} />
+        <Stat label="活动领取" value={<Quota value={bySource.activity ?? 0} />} icon={Gift} />
+        <Stat label="手动发放" value={<Quota value={bySource.manual ?? 0} />} icon={CircleDollarSign} />
+        <Stat label="永久余额" value={<Quota value={byKind.permanent ?? 0} />} icon={CircleDollarSign} />
+        <Stat
+          label="限时额度"
+          value={<Quota value={byKind.temporary ?? 0} />}
+          icon={Clock}
+          tone="gold"
+          note="次日 00:00 失效"
+        />
+      </StatGroup>
+
+      <StatGroup title="累计与流水健康">
+        <Stat label="累计发放笔数" value={d?.total_grants ?? 0} icon={FileText} />
+        <Stat label="累计发放额度" value={<Quota value={d?.total_quota} />} icon={CircleDollarSign} tone="gold" gold />
+        <Stat
+          label="失败待重试"
+          value={d?.failed_grants ?? 0}
+          icon={AlertTriangle}
+          tone={(d?.failed_grants ?? 0) > 0 ? 'alert' : 'clover'}
+          note={(d?.failed_grants ?? 0) > 0 ? '去「发放流水」页处理' : '没有积压'}
+        />
+        <Stat
+          label="处理中"
+          value={d?.pending_grants ?? 0}
+          icon={Clock}
+          tone="gold"
+          note={(d?.pending_grants ?? 0) > 0 ? '外呼中途中断需人工确认' : undefined}
+        />
+      </StatGroup>
+
+      <StatGroup title="用户">
+        <Stat label="总用户" value={totalUsers} icon={Users} />
+        <Stat label="已绑定 new-api" value={bound} icon={CheckCircle2} note={boundRate} />
+        <Stat label="今日新增" value={d?.new_users_today ?? 0} icon={Users} />
+        <Stat label="今日活动领取" value={d?.today_claims ?? 0} icon={Gift} />
+      </StatGroup>
     </div>
   )
 }

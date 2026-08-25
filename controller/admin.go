@@ -38,7 +38,41 @@ func escapeLikeLiteral(value string) string {
 	return strings.ReplaceAll(value, `_`, `\_`)
 }
 
-// GET /api/admin/dashboard — basic stats (R4.6).
+// sumByName 承接「按某个维度分组求和」的查询结果。
+// 别名不用 key:它在 MySQL 里是保留字,加反引号才能用,不值得。
+type sumByName struct {
+	Name  string
+	Total int64
+}
+
+// scanSumByName 把分组求和结果铺平成查找表,缺的组按 0 处理,前端不必区分
+// 「今天这个来源没发过」和「没有这个来源」。
+func scanSumByName(rows []sumByName) map[string]int64 {
+	out := make(map[string]int64, len(rows))
+	for _, r := range rows {
+		out[r.Name] = r.Total
+	}
+	return out
+}
+
+// startOfTodayIn 返回**配置时区**当日零点。
+//
+// 不能用服务器本地时区:签到/抽奖/对局都按配置时区的 date 列统计,而活动领取与
+// 发放流水只有 created_at 时间戳。两边口径不一致时,仪表盘上「今日签到」和
+// 「今日领取」会分属不同的一天,数字对不上却看不出原因。
+func startOfTodayIn(tz string, now time.Time) time.Time {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		loc = time.UTC
+	}
+	l := now.In(loc)
+	return time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, loc)
+}
+
+// GET /api/admin/dashboard — 运营概览(R4.6)。
+//
+// 分四组:今日各玩法的参与与中奖、今日发放额度(按来源与按额度类型)、
+// 累计与流水健康、用户规模。所有「今日」一律以配置时区的日界为准。
 func (a *App) AdminDashboard(c *gin.Context) {
 	now := time.Now()
 	tz := "Asia/Shanghai"
@@ -46,21 +80,73 @@ func (a *App) AdminDashboard(c *gin.Context) {
 		tz = cfg.Timezone
 	}
 	todayStr := service.TodayStr(tz, now)
+	dayStart := startOfTodayIn(tz, now)
 
+	// ---- 今日:签到 ----
 	var todayCheckins int64
 	a.DB.Model(&model.Checkin{}).Where("checkin_date = ?", todayStr).Count(&todayCheckins)
+
+	// ---- 今日:抽奖(盲盒)----
+	// 一人一天只能抽一次,所以「抽奖记录数 = 参与人数」。
+	var todayDraws, todayDrawWinners, todayDrawJackpots int64
+	a.DB.Model(&model.Draw{}).Where("draw_date = ?", todayStr).Count(&todayDraws)
+	// 中奖 = 真的发出了额度。命中奖励档但当日奖池已空(reason=over_site_budget)
+	// 的那些 quota 是 0,不算中奖,否则会把「没发出去」报成中奖。
+	a.DB.Model(&model.Draw{}).Where("draw_date = ? AND quota > 0", todayStr).Count(&todayDrawWinners)
+	a.DB.Model(&model.Draw{}).
+		Where("draw_date = ? AND quota > 0 AND quota_type = ?", todayStr, service.QuotaTypePermanent).
+		Count(&todayDrawJackpots)
+
+	// ---- 今日:小游戏 ----
+	var todayGamePlays, todayGameRewards int64
+	a.DB.Model(&model.GamePlay{}).Where("play_date = ?", todayStr).Count(&todayGamePlays)
+	a.DB.Model(&model.GamePlay{}).Where("play_date = ? AND quota > 0", todayStr).Count(&todayGameRewards)
+
+	// ---- 今日:活动领取 ----
 	var todayClaims int64
-	a.DB.Model(&model.Claim{}).Where("created_at >= ?", startOfToday(now)).Count(&todayClaims)
-	var totalGrants int64
+	a.DB.Model(&model.Claim{}).Where("created_at >= ?", dayStart).Count(&todayClaims)
+
+	// ---- 今日发放额度 ----
+	// 一律以 w_grants 为准(唯一的发放事实来源),且只统计 success:
+	// 失败/待重试的那笔钱还没到用户手里,计进「已发放」会虚高。
+	var byType []sumByName
+	a.DB.Model(&model.Grant{}).
+		Select("type as name, COALESCE(SUM(quota),0) as total").
+		Where("status = ? AND created_at >= ?", service.GrantStatusSuccess, dayStart).
+		Group("type").Scan(&byType)
+	quotaBySource := scanSumByName(byType)
+
+	var byKind []sumByName
+	a.DB.Model(&model.Grant{}).
+		Select("quota_type as name, COALESCE(SUM(quota),0) as total").
+		Where("status = ? AND created_at >= ?", service.GrantStatusSuccess, dayStart).
+		Group("quota_type").Scan(&byKind)
+	quotaByKind := scanSumByName(byKind)
+
+	var todayQuota int64
+	for _, v := range quotaBySource {
+		todayQuota += v
+	}
+
+	// ---- 累计与流水健康 ----
+	var totalGrants, totalQuota, pending, failed int64
 	a.DB.Model(&model.Grant{}).Count(&totalGrants)
-	var totalQuota int64
-	a.DB.Model(&model.Grant{}).Where("status = ?", service.GrantStatusSuccess).Select("COALESCE(SUM(quota),0)").Scan(&totalQuota)
-	var pending int64
+	a.DB.Model(&model.Grant{}).Where("status = ?", service.GrantStatusSuccess).
+		Select("COALESCE(SUM(quota),0)").Scan(&totalQuota)
 	a.DB.Model(&model.Grant{}).Where("status = ?", service.GrantStatusPending).Count(&pending)
-	var failed int64
 	a.DB.Model(&model.Grant{}).Where("status = ?", service.GrantStatusFailed).Count(&failed)
 
+	// ---- 用户规模 ----
+	var totalUsers, boundUsers, newUsersToday int64
+	a.DB.Model(&model.User{}).Count(&totalUsers)
+	a.DB.Model(&model.User{}).Where("newapi_user_id IS NOT NULL").Count(&boundUsers)
+	a.DB.Model(&model.User{}).Where("created_at >= ?", dayStart).Count(&newUsersToday)
+
 	common.Ok(c, gin.H{
+		"today":    todayStr,
+		"timezone": tz,
+
+		// 兼容既有字段名,前端旧版本不会因为本次扩展而读到 undefined。
 		"today_checkins": todayCheckins,
 		"today_claims":   todayClaims,
 		"total_grants":   totalGrants,
@@ -68,12 +154,26 @@ func (a *App) AdminDashboard(c *gin.Context) {
 		"failed_grants":  failed,
 		"pending_grants": pending,
 		"quota_per_unit": a.Config.QuotaPerUnit,
-	})
-}
 
-func startOfToday(now time.Time) time.Time {
-	y, m, d := now.Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+		// 抽奖
+		"today_draws":         todayDraws,
+		"today_draw_winners":  todayDrawWinners,
+		"today_draw_jackpots": todayDrawJackpots,
+
+		// 小游戏
+		"today_game_plays":   todayGamePlays,
+		"today_game_rewards": todayGameRewards,
+
+		// 今日发放额度
+		"today_quota":           todayQuota,
+		"today_quota_by_source": quotaBySource,
+		"today_quota_by_kind":   quotaByKind,
+
+		// 用户
+		"total_users":     totalUsers,
+		"bound_users":     boundUsers,
+		"new_users_today": newUsersToday,
+	})
 }
 
 // GET/PUT /api/admin/checkin-config — read/write check-in rules (R4.2).

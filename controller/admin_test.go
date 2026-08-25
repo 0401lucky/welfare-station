@@ -648,3 +648,78 @@ func performJSON(r *gin.Engine, method, path, body string, cookie *http.Cookie) 
 	r.ServeHTTP(rec, req)
 	return rec
 }
+
+// TestAdminDashboardDrawStats 验证仪表盘的抽奖统计口径。
+//
+// 重点是「中奖人数」的定义:必须是**真的发出了额度**的人。命中了奖励档但当日奖池
+// 已空(reason=over_site_budget、quota=0)的那些不能算中奖 —— 否则站长看到的中奖
+// 人数里混着一批其实什么都没拿到的用户,越是奖池吃紧的日子这个数字越骗人。
+func TestAdminDashboardDrawStats(t *testing.T) {
+	app, srv, _ := checkinTestApp(t)
+	defer srv.Close()
+	admin, _ := adminUsers(t, app)
+	cookie := sessionCookie(t, app, admin.ID, true)
+
+	cfg, err := service.GetCheckinConfig(app.DB)
+	if err != nil {
+		t.Fatalf("读取签到配置: %v", err)
+	}
+	today := service.TodayStr(cfg.Timezone, time.Now())
+
+	// 四条今日抽奖记录:限时中奖、永久大奖、奖池已空(命中但没发)、纯数字未中奖。
+	rows := []model.Draw{
+		{UserID: 1001, DrawDate: today, Roll: 95, TierLabel: "小欧一把",
+			Quota: 1500000, QuotaType: service.QuotaTypeTemporary, Reason: service.DrawReasonOK},
+		{UserID: 1002, DrawDate: today, Roll: 100, TierLabel: "欧皇附体",
+			Quota: 10000000, QuotaType: service.QuotaTypePermanent, Reason: service.DrawReasonOK},
+		{UserID: 1003, DrawDate: today, Roll: 99, TierLabel: "欧皇附体",
+			Quota: 0, QuotaType: service.QuotaTypePermanent, Reason: service.DrawReasonOverBudget},
+		{UserID: 1004, DrawDate: today, Roll: 12, TierLabel: "一般般绿",
+			Quota: 0, QuotaType: service.QuotaTypeTemporary, Reason: service.DrawReasonNoPrize},
+	}
+	// 昨天的记录不该被算进今日。
+	rows = append(rows, model.Draw{UserID: 1005, DrawDate: "2000-01-01", Roll: 100,
+		TierLabel: "欧皇附体", Quota: 10000000, QuotaType: service.QuotaTypePermanent,
+		Reason: service.DrawReasonOK})
+	for i := range rows {
+		if err := app.DB.Create(&rows[i]).Error; err != nil {
+			t.Fatalf("插入抽奖记录: %v", err)
+		}
+	}
+
+	rec := perform(adminRoutes(app), http.MethodGet, "/api/admin/dashboard", []*http.Cookie{cookie})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("dashboard: %d %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Today             string `json:"today"`
+			TodayDraws        int64  `json:"today_draws"`
+			TodayDrawWinners  int64  `json:"today_draw_winners"`
+			TodayDrawJackpots int64  `json:"today_draw_jackpots"`
+			TotalUsers        int64  `json:"total_users"`
+			BoundUsers        int64  `json:"bound_users"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("解析响应: %v", err)
+	}
+	d := resp.Data
+
+	if d.Today != today {
+		t.Errorf("统计日应为 %s,实际 %s", today, d.Today)
+	}
+	if d.TodayDraws != 4 {
+		t.Errorf("今日抽奖人数应为 4(昨天那条不算),实际 %d", d.TodayDraws)
+	}
+	if d.TodayDrawWinners != 2 {
+		t.Errorf("中奖人数应为 2(奖池已空与未中奖都不算),实际 %d", d.TodayDrawWinners)
+	}
+	if d.TodayDrawJackpots != 1 {
+		t.Errorf("永久大奖人数应为 1(奖池已空的那条 quota=0 不算),实际 %d", d.TodayDrawJackpots)
+	}
+	if d.TotalUsers != 2 || d.BoundUsers != 2 {
+		t.Errorf("用户统计应为 总数 2 / 已绑定 2,实际 %d / %d", d.TotalUsers, d.BoundUsers)
+	}
+}

@@ -226,6 +226,10 @@ export interface Page<T> {
 }
 
 export interface Dashboard {
+  /** 配置时区下的今天,以及该时区本身 —— 所有 today_* 字段都以它为日界。 */
+  today: string
+  timezone: string
+
   today_checkins: number
   today_claims: number
   total_grants: number
@@ -233,6 +237,27 @@ export interface Dashboard {
   failed_grants: number
   pending_grants: number
   quota_per_unit: number
+
+  /** 抽奖:一人一天一次,所以 today_draws 既是次数也是人数。 */
+  today_draws: number
+  /** 真的发出了额度的人数;命中奖励档但奖池已空的不计入。 */
+  today_draw_winners: number
+  /** 其中拿到永久额度(大奖)的人数。 */
+  today_draw_jackpots: number
+
+  today_game_plays: number
+  today_game_rewards: number
+
+  /** 今日已成功发放的额度合计;失败/待重试的不计入。 */
+  today_quota: number
+  /** 按来源拆分,key = checkin|activity|game|draw|manual;当日没发过的来源不出现。 */
+  today_quota_by_source: Record<string, number>
+  /** 按额度类型拆分,key = permanent|temporary。 */
+  today_quota_by_kind: Record<string, number>
+
+  total_users: number
+  bound_users: number
+  new_users_today: number
 }
 
 // ---- 小游戏与游戏额度体系(game_config / /api/games/*)----
