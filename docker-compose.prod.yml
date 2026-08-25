@@ -8,7 +8,7 @@
 #   1. .env —— 与本文件同目录,内容参照仓库 .env.example
 #   2. 可达的 MySQL 与 new-api 实例
 #
-# 镜像 tag 由 CI 通过 .env 里的 WELFARE_IMAGE 注入;未设置时回落 :main。
+# 镜像 tag 由 CI 写进 .env 的 WELFARE_IMAGE;未设置时回落 :main。
 
 services:
   welfare:
@@ -18,11 +18,13 @@ services:
     env_file:
       - .env
     ports:
-      # 只绑本机回环:对外由宿主机的 Nginx/Caddy 反代并终结 HTTPS。
-      # 要直接暴露公网请改成 "8080:8080",但那样 Cookie 的 Secure 属性会失效。
-      - "127.0.0.1:8080:8080"
+      # 只绑本机回环,由 cloudflared 隧道对外提供 HTTPS。
+      # 宿主机 8080 已被其他服务(caddy)占用,这里用 8090;隧道
+      # fuli.lucky0625.qzz.io -> http://localhost:8090 依赖这个端口,别改。
+      - "127.0.0.1:8090:8080"
     healthcheck:
       # 站点信息是公开只读接口,不需要鉴权,适合做存活探针。
+      # 镜像基于 alpine,自带 wget(busybox);没有 curl。
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/site/info"]
       interval: 30s
       timeout: 5s
@@ -34,12 +36,11 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    # new-api 若在自己的 compose 网络里,取消下面注释并把网络名填对,
-    # 然后 .env 里用 NEWAPI_BASE_URL=http://new-api:3000
-    # networks:
-    #   - new-api-network
+    # new-api 与 MySQL 都在 newapi_default 网络里,必须接进去才能用容器名
+    # (newapi9-new-api / newapi9-mysql)访问它们。
+    networks:
+      - newapi_default
 
-# networks:
-#   new-api-network:
-#     external: true
-#     name: <实际的 new-api compose 网络名>
+networks:
+  newapi_default:
+    external: true

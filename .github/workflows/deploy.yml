@@ -64,6 +64,11 @@ jobs:
     name: 部署到服务器
     needs: build
     runs-on: ubuntu-latest
+    # packages: read 让本 job 的内置 GITHUB_TOKEN 能拉本仓库的 GHCR 镜像,
+    # 因此不需要额外准备 PAT,也不必把 package 设为 public。
+    permissions:
+      contents: read
+      packages: read
     # 建议在仓库 Settings → Environments 建一个 production 环境,
     # 可选加 required reviewers 把自动部署变成需人工点确认。
     environment: production
@@ -99,7 +104,7 @@ jobs:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/opt/welfare-station' }}
           IMAGE: ${{ needs.build.outputs.image }}
           GHCR_USER: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ssh -p "$SSH_PORT" -i ~/.ssh/id_ed25519 "$SSH_USER@$SSH_HOST" \
             "IMAGE='$IMAGE' DEPLOY_PATH='$DEPLOY_PATH' GHCR_USER='$GHCR_USER' GHCR_TOKEN='$GHCR_TOKEN' bash -se" <<'REMOTE'
