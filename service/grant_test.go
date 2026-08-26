@@ -26,9 +26,11 @@ type mockNewAPI struct {
 	tempCalls    int64 // /api/user/temporary_quota 命中次数
 	permCalls    int64 // /api/user/manage 命中次数
 	// checkedInToday 控制 GET /api/user/:id 返回的跨系统签到状态;
-	// omitCheckinFields=true 时完全不返回这两个字段,模拟旧版 new-api。
-	checkedInToday    int64
-	omitCheckinFields int64
+	// omitCheckinFields=true 时完全不返回签到状态字段,模拟旧版 new-api。
+	checkedInToday           int64
+	todayCheckinQuotaAwarded int64
+	todayCheckinQuotaType    string
+	omitCheckinFields        int64
 }
 
 func newMockNewAPI() *mockNewAPI {
@@ -53,7 +55,12 @@ func newMockNewAPI() *mockNewAPI {
 		data := map[string]any{"id": 42, "username": "alice", "quota": 100, "status": 1}
 		if atomic.LoadInt64(&m.omitCheckinFields) == 0 {
 			data["checked_in_today"] = atomic.LoadInt64(&m.checkedInToday) == 1
-			data["today_checkin_quota_type"] = "temporary"
+			quotaType := m.todayCheckinQuotaType
+			if quotaType == "" {
+				quotaType = "temporary"
+			}
+			data["today_checkin_quota_type"] = quotaType
+			data["today_checkin_quota_awarded"] = atomic.LoadInt64(&m.todayCheckinQuotaAwarded)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "message": "", "data": data})

@@ -23,8 +23,8 @@ var ErrCheckinDisabled = errors.New("签到功能暂未开放")
 // configured global minimum.
 var ErrTrustLevelTooLow = errors.New("当前账号信任等级不足,无法签到")
 
-// ErrCheckedInOnNewAPI 表示用户当日已经在 new-api 内置签到里签过了。
-// 两边奖励打的是同一个额度桶,放行会让用户当天领两份。
+// ErrCheckedInOnNewAPI 表示用户当日已经在 new-api 签到过了,且无法由福利站
+// 存量限时翻牌流水完整解释。两边奖励打的是同一个额度桶,此时不能盲目再发。
 var ErrCheckedInOnNewAPI = errors.New("你今天已在 new-api 签到过了,明天再来福利站摘叶子")
 
 // ErrCheckinNotOpen 表示当日签到尚未到开放时间,具体时间由调用方按配置拼文案。
@@ -58,6 +58,67 @@ func hasCheckedInToday(db *gorm.DB, userID int64, today string) (bool, error) {
 		Where("user_id = ? AND checkin_date = ?", userID, today).
 		Count(&count).Error
 	return count > 0, err
+}
+
+// hasSuccessfulTemporaryDrawGrantToday 判断今天 new-api 的限时签到桶是否可以由福利站
+// 的旧版翻牌记录解释。
+//
+// 旧版流程允许先翻牌。限时翻牌会在 new-api 的 checkins 表里留下
+// checked_in_today=true，随后福利站签到会被跨系统防重拦截。这里不尝试猜测
+// new-api 那一行的来源：先确认福利站确实有同日的限时中奖记录，以及一条字段
+// 完全匹配的抽奖流水；调用方还会把 new-api 当日累计额度与福利站成功流水总额
+// 严格对账，只有完全一致才放行正常签到。
+//
+// 只接受 success：pending/failed 无法证明远端已经到账，尤其外呼超时时可能出现
+// “远端已执行、本地却记 failed”的不确定状态，兼容分支必须保守拒绝。
+func hasSuccessfulTemporaryDrawGrantToday(db *gorm.DB, userID, newapiUserID int64, today string) (bool, error) {
+	var draw model.Draw
+	err := db.Where(
+		"user_id = ? AND draw_date = ? AND quota > 0 AND quota_type = ?",
+		userID, today, QuotaTypeTemporary,
+	).First(&draw).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	var grant model.Grant
+	err = db.Where(
+		"type = ? AND ref_id = ? AND user_id = ? AND newapi_user_id = ? AND quota = ? AND quota_type = ? AND status = ?",
+		GrantTypeDraw, draw.ID, userID, newapiUserID, draw.Quota, QuotaTypeTemporary, GrantStatusSuccess,
+	).First(&grant).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// successfulTemporaryGrantsToday 返回福利站在 new-api 北京时间当天已经确认成功
+// 的所有限时额度流水总和。这里只统计 success，故外呼超时后本地 failed/pending
+// 的金额不会被猜作已到账，避免兼容分支扩大双发窗口。
+func successfulTemporaryGrantsToday(db *gorm.DB, userID, newapiUserID int64, now time.Time) (int64, error) {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		loc = time.FixedZone("Asia/Shanghai", 8*60*60)
+	}
+	local := now.In(loc)
+	start := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+	end := start.AddDate(0, 0, 1)
+
+	var total int64
+	err = db.Model(&model.Grant{}).
+		Where(
+			"user_id = ? AND newapi_user_id = ? AND quota_type = ? AND status = ? AND updated_at >= ? AND updated_at < ?",
+			userID, newapiUserID, QuotaTypeTemporary, GrantStatusSuccess, start, end,
+		).
+		Select("COALESCE(SUM(quota), 0)").
+		Scan(&total).Error
+	return total, err
 }
 
 // TodayStr returns today's "YYYY-MM-DD" in the configured timezone.
@@ -122,6 +183,9 @@ type CheckinResult struct {
 	Grant   *model.Grant
 	Base    int64
 	Bonus   float64
+	// Reconciled 表示旧版先翻牌后签到的存量记录已对账。
+	// 为 true 时仍会正常创建签到与发放流水；该字段供控制器选择更准确的提示文案。
+	Reconciled bool
 	// OutErr is the new-api call error; nil means the quota landed.
 	OutErr error
 }
@@ -129,7 +193,7 @@ type CheckinResult struct {
 // DoCheckin performs the full check-in flow (design.md §8 + R2):
 //  1. compute today in the configured timezone
 //  2. compute streak from yesterday
-//  3. compute reward
+//  3. compute reward (存量对账仍正常发放福利站签到奖励)
 //  4. inside one transaction: insert w_checkins (unique uk_user_date) +
 //     pending w_grants(type=checkin)
 //  5. commit, then execute the payout
@@ -159,14 +223,33 @@ func DoCheckin(db *gorm.DB, grants *GrantService, cfg *CheckinConfig, user *mode
 	if already {
 		return nil, ErrAlreadyCheckedIn
 	}
+	reconciled := false
 	if grants.newapi != nil {
 		// 探测失败(new-api 不可达/旧版无此字段)一律放行:此时发放本身也会失败并进
 		// 入可重试流水,不因为探测不到就把用户挡在门外。
-		if u, err := grants.newapi.GetUser(*user.NewapiUserID); err == nil && u.CheckedInToday {
-			// 不能仅凭福利站本地抽奖记录推断这笔 new-api 状态的来源:用户也可能
-			// 先在 new-api 内置签到,再产生其他本地记录。为避免跨系统双发,任何明确
-			// 的 checked_in_today 都继续拦截;旧版/探测失败才按“未知”放行。
-			return nil, ErrCheckedInOnNewAPI
+		if u, err := grants.newapi.GetUser(*user.NewapiUserID); err == nil && u != nil && u.CheckedInToday {
+			// 兼容旧版先翻牌后签到，但必须同时满足：new-api 明确是限时桶、
+			// 返回的当日累计额度>0、本地存在同日完整翻牌链路，且 new-api
+			// 的累计额度与福利站当天已确认成功的所有限时流水严格相等。
+			// 这样普通内置签到（或本地 failed/pending 尚未确认的外呼）都不会
+			// 被误放行；通过后仍会正常发放本次福利站签到奖励。
+			if u.TodayCheckinQuotaType == QuotaTypeTemporary && u.TodayCheckinQuotaAwarded > 0 {
+				reconciled, err = hasSuccessfulTemporaryDrawGrantToday(db, user.ID, *user.NewapiUserID, today)
+				if err != nil {
+					return nil, err
+				}
+				if reconciled {
+					var localTotal int64
+					localTotal, err = successfulTemporaryGrantsToday(db, user.ID, *user.NewapiUserID, now)
+					if err != nil {
+						return nil, err
+					}
+					reconciled = localTotal == u.TodayCheckinQuotaAwarded
+				}
+			}
+			if !reconciled {
+				return nil, ErrCheckedInOnNewAPI
+			}
 		}
 	}
 
@@ -204,7 +287,10 @@ func DoCheckin(db *gorm.DB, grants *GrantService, cfg *CheckinConfig, user *mode
 	}
 
 	outErr := grants.ExecuteAfterCommit(&grant)
-	return &CheckinResult{Checkin: &checkin, Grant: &grant, Base: base, Bonus: bonus, OutErr: outErr}, nil
+	return &CheckinResult{
+		Checkin: &checkin, Grant: &grant, Base: base, Bonus: bonus,
+		Reconciled: reconciled, OutErr: outErr,
+	}, nil
 }
 
 // GetCheckinView returns the user's check-in summary for GET /api/checkin:

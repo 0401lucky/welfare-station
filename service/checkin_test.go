@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"welfare/model"
+
+	"gorm.io/gorm"
 )
 
 func fixedConfig(enabled bool, fixed int64) *CheckinConfig {
@@ -252,48 +254,144 @@ func TestCheckinBlockedByNewAPICheckin(t *testing.T) {
 	}
 }
 
-// TestCheckinStillBlocksWhenLocalTemporaryDrawExists 验证即使福利站存在当日
-// 限时抽奖记录,也不能据此推断 new-api 的 checked_in_today 来源并放行签到。
-// 这条回归防止未来再次引入不可靠的“存量兼容”双发漏洞。
-func TestCheckinStillBlocksWhenLocalTemporaryDrawExists(t *testing.T) {
+// seedLegacyTemporaryDraw 模拟旧版本“先翻牌后签到”留下的本地业务链。
+// grant 字段必须与 draw 严格匹配，兼容逻辑才会把它视为有效证据。
+func seedLegacyTemporaryDraw(t *testing.T, db *gorm.DB, user *model.User, quota int64, status string) (*model.Draw, *model.Grant) {
+	t.Helper()
+	today := TodayStr(DefaultCheckinConfig().Timezone, time.Now())
+	draw := &model.Draw{
+		UserID: user.ID, DrawDate: today, Roll: 95, TierLabel: "小欧一把",
+		Quota: quota, QuotaType: QuotaTypeTemporary, Reason: DrawReasonOK,
+	}
+	if err := db.Create(draw).Error; err != nil {
+		t.Fatalf("create draw: %v", err)
+	}
+	grant := &model.Grant{
+		UserID: user.ID, NewapiUserID: *user.NewapiUserID, Type: GrantTypeDraw, RefID: draw.ID,
+		Quota: quota, QuotaType: QuotaTypeTemporary, Status: status,
+	}
+	if err := db.Create(grant).Error; err != nil {
+		t.Fatalf("create draw grant: %v", err)
+	}
+	return draw, grant
+}
+
+// TestCheckinAllowsMatchedLegacyTemporaryDraw 验证旧版先翻牌后签到的安全兼容：
+// new-api 当日桶累计额与福利站当天成功限时流水总额完全一致时，正常发签到奖励。
+// 不是“只补签到状态”：用户尚未领到福利站签到奖励，严格对账已证明此前额度全由
+// 福利站其他业务产生，因此按原产品语义应继续发本次签到额度。
+func TestCheckinAllowsMatchedLegacyTemporaryDraw(t *testing.T) {
 	svc, mock, db := setupGrantService(t)
 	defer mock.Close()
 	atomic.StoreInt64(&mock.checkedInToday, 1)
+	atomic.StoreInt64(&mock.todayCheckinQuotaAwarded, 500)
 
 	user := model.User{
-		LinuxDOID: "local-draw-before-checkin", LinuxDOName: "u", TrustLevel: 2,
+		LinuxDOID: "legacy-draw-before-checkin", LinuxDOName: "u", TrustLevel: 2,
 		Status: 1, NewapiUserID: int64Ptr(42),
 	}
 	if err := db.Create(&user).Error; err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	today := TodayStr(DefaultCheckinConfig().Timezone, time.Now())
-	draw := model.Draw{
-		UserID: user.ID, DrawDate: today, Roll: 95, TierLabel: "小欧一把",
-		Quota: 500, QuotaType: QuotaTypeTemporary, Reason: DrawReasonOK,
+	seedLegacyTemporaryDraw(t, db, &user, 500, GrantStatusSuccess)
+
+	res, err := DoCheckin(db, svc, fixedConfig(true, 1000), &user)
+	if err != nil {
+		t.Fatalf("严格对账一致时应正常签到: %v", err)
 	}
-	if err := db.Create(&draw).Error; err != nil {
-		t.Fatalf("create draw: %v", err)
+	if !res.Reconciled {
+		t.Fatal("存量兼容放行应标记 Reconciled")
 	}
-	grant := model.Grant{
-		UserID: user.ID, NewapiUserID: 42, Type: GrantTypeDraw, RefID: draw.ID,
-		Quota: 500, QuotaType: QuotaTypeTemporary, Status: GrantStatusSuccess,
+	if res.Checkin.Quota != 1000 || res.Grant == nil || res.Grant.Status != GrantStatusPending {
+		t.Fatalf("应正常创建 1000 签到奖励流水,实际 checkin=%+v grant=%+v", res.Checkin, res.Grant)
 	}
-	if err := db.Create(&grant).Error; err != nil {
-		t.Fatalf("create draw grant: %v", err)
+	if got := atomic.LoadInt64(&mock.permCalls); got != 1 {
+		t.Fatalf("签到奖励应正常外呼一次,实际 %d", got)
+	}
+	var checkinGrants int64
+	db.Model(&model.Grant{}).Where("user_id = ? AND type = ?", user.ID, "checkin").Count(&checkinGrants)
+	if checkinGrants != 1 {
+		t.Fatalf("应新增 1 条签到流水,实际 %d", checkinGrants)
+	}
+}
+
+// TestCheckinLegacyTemporaryDrawReconciliationGuards 锁定安全边界：没有完整本地
+// 证据、new-api 金额多出内置签到奖励、缺少累计字段、或本地流水未成功时均拦截。
+func TestCheckinLegacyTemporaryDrawReconciliationGuards(t *testing.T) {
+	cases := []struct {
+		name          string
+		seedDraw      bool
+		grantStatus   string
+		remoteAwarded int64
+	}{
+		{name: "无本地翻牌证据", remoteAwarded: 500},
+		{name: "new-api 还有额外内置签到额度", seedDraw: true, grantStatus: GrantStatusSuccess, remoteAwarded: 700},
+		{name: "新字段缺失按零值保守拦截", seedDraw: true, grantStatus: GrantStatusSuccess, remoteAwarded: 0},
+		{name: "failed 流水不计成功总额", seedDraw: true, grantStatus: GrantStatusFailed, remoteAwarded: 500},
+		{name: "pending 流水不计成功总额", seedDraw: true, grantStatus: GrantStatusPending, remoteAwarded: 500},
 	}
 
-	_, err := DoCheckin(db, svc, fixedConfig(true, 1000), &user)
-	if !errors.Is(err, ErrCheckedInOnNewAPI) {
-		t.Fatalf("new-api 已签到时仍应拦截,实际 %v", err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, mock, db := setupGrantService(t)
+			defer mock.Close()
+			atomic.StoreInt64(&mock.checkedInToday, 1)
+			atomic.StoreInt64(&mock.todayCheckinQuotaAwarded, tc.remoteAwarded)
+
+			user := model.User{
+				LinuxDOID: "legacy-guard-" + tc.name, LinuxDOName: "u", TrustLevel: 2,
+				Status: 1, NewapiUserID: int64Ptr(42),
+			}
+			if err := db.Create(&user).Error; err != nil {
+				t.Fatalf("create user: %v", err)
+			}
+			if tc.seedDraw {
+				seedLegacyTemporaryDraw(t, db, &user, 500, tc.grantStatus)
+			}
+
+			_, err := DoCheckin(db, svc, fixedConfig(true, 1000), &user)
+			if !errors.Is(err, ErrCheckedInOnNewAPI) {
+				t.Fatalf("应保守拦截,实际 %v", err)
+			}
+			var checkins, checkinGrants int64
+			db.Model(&model.Checkin{}).Where("user_id = ?", user.ID).Count(&checkins)
+			db.Model(&model.Grant{}).
+				Where("user_id = ? AND type = ?", user.ID, "checkin").
+				Count(&checkinGrants)
+			if checkins != 0 || checkinGrants != 0 {
+				t.Fatalf("被拦截时不应新增签到记录/流水: %d/%d", checkins, checkinGrants)
+			}
+		})
 	}
-	var checkins, checkinGrants int64
-	db.Model(&model.Checkin{}).Where("user_id = ?", user.ID).Count(&checkins)
-	db.Model(&model.Grant{}).
-		Where("user_id = ? AND type = ?", user.ID, "checkin").
-		Count(&checkinGrants)
-	if checkins != 0 || checkinGrants != 0 {
-		t.Fatalf("被拦截时不应新增签到记录/流水: %d/%d", checkins, checkinGrants)
+}
+
+// TestCheckinLegacyReconciliationSumsAllSuccessfulTemporaryGrants 验证严格对账
+// 不只看翻牌：当天其他已成功的福利站限时发放也必须计入总额，否则会误判来源。
+func TestCheckinLegacyReconciliationSumsAllSuccessfulTemporaryGrants(t *testing.T) {
+	svc, mock, db := setupGrantService(t)
+	defer mock.Close()
+	atomic.StoreInt64(&mock.checkedInToday, 1)
+	atomic.StoreInt64(&mock.todayCheckinQuotaAwarded, 800)
+
+	user := model.User{
+		LinuxDOID: "legacy-all-temp-grants", LinuxDOName: "u", TrustLevel: 2,
+		Status: 1, NewapiUserID: int64Ptr(42),
+	}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	seedLegacyTemporaryDraw(t, db, &user, 500, GrantStatusSuccess)
+	other := model.Grant{
+		UserID: user.ID, NewapiUserID: 42, Type: "manual", RefID: NewManualRefID(),
+		Quota: 300, QuotaType: QuotaTypeTemporary, Status: GrantStatusSuccess,
+	}
+	if err := db.Create(&other).Error; err != nil {
+		t.Fatalf("create other temporary grant: %v", err)
+	}
+
+	res, err := DoCheckin(db, svc, fixedConfig(true, 1000), &user)
+	if err != nil || !res.Reconciled {
+		t.Fatalf("800 = 500+300 时应对账放行, res=%+v err=%v", res, err)
 	}
 }
 

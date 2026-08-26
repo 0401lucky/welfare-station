@@ -27,6 +27,9 @@ type NewAPIUser struct {
 	// 防重复签到。旧版 new-api 不返回,JSON 解析后为 false / "",按「未签到」处理。
 	CheckedInToday        bool   `json:"checked_in_today"`
 	TodayCheckinQuotaType string `json:"today_checkin_quota_type"` // permanent | temporary | ""
+	// TodayCheckinQuotaAwarded 是 new-api 当日签到桶的累计发放额。该字段用于
+	// 存量“先翻牌后签到”兼容对账；旧版接口缺失时保持零值，不能触发兼容放行。
+	TodayCheckinQuotaAwarded int64 `json:"today_checkin_quota_awarded"`
 }
 
 // newAPIEnvelope is the shared response wrapper `{success, message, data}`.
