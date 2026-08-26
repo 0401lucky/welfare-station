@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -9,6 +9,7 @@ import { Button, Card, Badge, Progress, Spinner } from '@/components/ui'
 import { Clover, CloverEmblem, CloverRain } from '@/components/Clover'
 import { toast } from '@/components/Toast'
 import { api, Activity, CheckinResult, ClaimResult, DrawReason, DrawResult, DrawView, SelfInfo, CheckinView } from '@/lib/api'
+import { getCheckinGate, CheckinGateState } from '@/lib/checkinFlow'
 import { useMe, useSiteInfo } from '@/hooks/useMe'
 import { formatExpireIn, formatUSD, timeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -86,7 +87,33 @@ function CardBack() {
   )
 }
 
-function LuckyDrawCard({ me, onWin }: { me?: SelfInfo | null; onWin: () => void }) {
+function checkinGateText(state: CheckinGateState) {
+  switch (state) {
+    case 'login_required': return '登录后才能参与今日翻牌'
+    case 'bind_required': return '先绑定 new-api 账号,再来签到和翻牌'
+    case 'checking': return '正在确认今天的签到状态…'
+    case 'unavailable': return '暂时无法确认签到状态,请刷新后再试'
+    case 'stale': return '日期已切换,正在刷新今天的签到状态…'
+    case 'checkin_required': return '请先完成今日签到,签到成功后才能翻牌'
+    case 'ready': return '签到已完成,翻开一片四叶草'
+  }
+}
+
+function LuckyDrawCard({
+  me,
+  onWin,
+  checkinView,
+  checkinLoading = false,
+  checkinError = false,
+  gateNow,
+}: {
+  me?: SelfInfo | null
+  onWin: () => void
+  checkinView?: CheckinView
+  checkinLoading?: boolean
+  checkinError?: boolean
+  gateNow?: Date
+}) {
   const qc = useQueryClient()
   const { data: site } = useSiteInfo()
   const perUnit = site?.quota_per_unit
@@ -99,9 +126,35 @@ function LuckyDrawCard({ me, onWin }: { me?: SelfInfo | null; onWin: () => void 
     retry: false,
   })
 
+  const checkinGate = getCheckinGate({
+    authenticated: !!me,
+    bound,
+    loading: checkinLoading,
+    error: checkinError,
+    checkedToday: checkinView?.checked_today,
+    viewToday: checkinView?.today,
+    timezone: checkinView?.rules.timezone,
+    now: gateNow,
+  })
+
   // picked 是用户翻开的那张牌;fresh 是本次刚抽到的结果(带 grant_status)。
   const [picked, setPicked] = useState<number | null>(null)
   const [fresh, setFresh] = useState<DrawResult | null>(null)
+
+  const refreshDailyState = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: ['checkin'] })
+    void qc.invalidateQueries({ queryKey: ['draw'] })
+    void qc.invalidateQueries({ queryKey: ['me'] })
+  }, [qc])
+
+  useEffect(() => {
+    if (checkinGate !== 'stale') return
+    // React Query 刷新服务端数据之外，还要清掉组件内“刚翻出”的昨日结果，
+    // 否则 fresh 会持续盖住新一天的 draw view。
+    setPicked(null)
+    setFresh(null)
+    refreshDailyState()
+  }, [checkinGate, refreshDailyState])
 
   const drawMut = useMutation({
     mutationFn: () => api.post<DrawResult>('/api/draw'),
@@ -124,10 +177,31 @@ function LuckyDrawCard({ me, onWin }: { me?: SelfInfo | null; onWin: () => void 
   const result = fresh ?? stored
   const revealed = !!result
   const drawing = drawMut.isPending
-  const disabled = !bound || !view.data?.enabled || drawing || revealed
+  // 签到是翻牌的明确前置动作。门禁状态未 ready 时一律禁用,包括
+  // 查询尚未返回、查询失败以及今日尚未签到的瞬间。
+  const disabled = checkinGate !== 'ready' || !view.data?.enabled || drawing || revealed
 
   const pick = (i: number) => {
-    if (disabled) return
+    // 页面可能在两次渲染之间刚好跨日；点击时再用真实当前时间复核一次，
+    // 避免昨日 checked_today=true 在定时刷新前放行请求。
+    const liveGate = getCheckinGate({
+      authenticated: !!me,
+      bound,
+      loading: checkinLoading,
+      error: checkinError,
+      checkedToday: checkinView?.checked_today,
+      viewToday: checkinView?.today,
+      timezone: checkinView?.rules.timezone,
+      now: new Date(),
+    })
+    if (disabled || liveGate !== 'ready') {
+      if (liveGate === 'stale') {
+        setPicked(null)
+        setFresh(null)
+        refreshDailyState()
+      }
+      return
+    }
     setPicked(i)
     drawMut.mutate()
   }
@@ -146,7 +220,7 @@ function LuckyDrawCard({ me, onWin }: { me?: SelfInfo | null; onWin: () => void 
           </span>
         ) : (
           <span className="text-xs text-muted-foreground">
-            {bound ? '翻开一片四叶草' : '登录后每天可摇一次'}
+            {checkinGateText(checkinGate)}
           </span>
         )}
       </div>
@@ -213,9 +287,9 @@ function LuckyDrawCard({ me, onWin }: { me?: SelfInfo | null; onWin: () => void 
       ) : (
         <div className="mt-4 space-y-2">
           <p className="text-xs text-muted-foreground">
-            {bound
-              ? '每天一次,选一片翻开就知道今天的运气。多数时候只是个数字,偶尔能摘到额度。'
-              : '登录并绑定 new-api 后,每天可以摇一次幸运数字。'}
+            {checkinGate === 'ready'
+              ? '每天一次,签到后选一片翻开就知道今天的运气。多数时候只是个数字,偶尔能摘到额度。'
+              : checkinGateText(checkinGate)}
           </p>
           {prizeTiers.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
@@ -309,10 +383,16 @@ function CheckinCard({
   view,
   me,
   onChecked,
+  loading = false,
+  error = false,
+  stale = false,
 }: {
   view?: CheckinView
   me?: SelfInfo | null
   onChecked: (r: CheckinResult) => void
+  loading?: boolean
+  error?: boolean
+  stale?: boolean
 }) {
   const qc = useQueryClient()
   const { data: site } = useSiteInfo()
@@ -331,17 +411,27 @@ function CheckinCard({
   })
 
   const rules = view?.rules
-  const checked = view?.checked_today
+  const checked = view?.checked_today === true
   const temporary = rules?.reward_type === 'temporary'
+  const statusLoading = loading || stale || (!view && !error)
+  const statusUnavailable = error
   // 未到开放时间:按钮置灰,别让用户点了才报错。view 未加载时不提前置灰。
   const notOpen = view ? view.opened === false : false
   const openAt = rules?.available_from || '00:00'
+  const disabledByConfig = view ? rules?.enabled === false : false
+  const statusLabel = statusUnavailable
+    ? '状态暂不可用'
+    : statusLoading
+      ? stale ? '日期已切换,刷新中' : '状态确认中'
+      : checked
+        ? '今日已签到'
+        : '今日待签到'
 
   return (
     <Card className="p-6">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm text-muted-foreground">每日签到 · 今日奖励</p>
+          <p className="text-sm text-muted-foreground">每日签到 · {statusLabel}</p>
           <h2 className="mt-1 text-xl font-bold text-clover-800">
             {rules?.mode === 'random'
               ? <>随机 {formatUSD(rules.min_quota, perUnit)} ~ {formatUSD(rules.max_quota, perUnit)}</>
@@ -349,7 +439,7 @@ function CheckinCard({
           </h2>
           {temporary && (
             <p className="mt-1.5 flex items-center gap-1 text-xs text-gold-600">
-              <Timer size={12} /> 限时 · 今日有效,不增加永久余额,次日 00:00 失效
+              <Timer size={12} /> 签到奖励为限时额度 · 今日有效,次日 00:00 失效
             </p>
           )}
         </div>
@@ -366,10 +456,10 @@ function CheckinCard({
         variant="gradient"
         size="lg"
         className="mt-5 w-full"
-        disabled={checked || notOpen || checkinMut.isPending}
+        disabled={statusLoading || statusUnavailable || checked || notOpen || disabledByConfig || checkinMut.isPending}
         onClick={() => checkinMut.mutate()}
       >
-        {checkinMut.isPending ? (
+        {checkinMut.isPending || statusLoading ? (
           <Spinner size={20} />
         ) : checked ? (
           <Clover size={18} stem={false} petal="#ffffff" petalAlt="#dcf1e2" />
@@ -378,8 +468,24 @@ function CheckinCard({
             <Clover size={18} stem={false} petal="#ffffff" petalAlt="#dcf1e2" />
           </span>
         )}
-        {checked ? '今天的叶子已经摘过啦' : notOpen ? `${openAt} 后才长出叶子` : '摘一片四叶草 · 签到'}
+        {statusUnavailable
+          ? '签到状态暂时不可用'
+          : statusLoading
+            ? stale ? '日期已切换,正在刷新…' : '正在确认签到状态…'
+            : checked
+              ? '今天的叶子已经摘过啦'
+              : disabledByConfig
+                ? '今日签到暂未开放'
+                : notOpen
+                  ? `${openAt} 后才长出叶子`
+                  : '摘一片四叶草 · 签到'}
       </Button>
+
+      {statusUnavailable && (
+        <p className="mt-2 text-center text-xs text-muted-foreground">
+          暂时无法确认签到状态,请刷新页面后再试。
+        </p>
+      )}
 
       {notOpen && !checked && (
         <p className="mt-2 flex items-center justify-center gap-1 text-xs text-muted-foreground">
@@ -390,7 +496,7 @@ function CheckinCard({
       {!!me?.newapi_temp_balance && me.newapi_temp_balance > 0 && (
         <div className="mt-4 flex items-center justify-between gap-2 rounded-2xl border border-gold-400 bg-gold-300/30 px-4 py-2.5 text-sm text-gold-600">
           <span className="flex items-center gap-1.5">
-            <Timer size={14} /> 限时额度余额
+            <Timer size={14} /> 钱包限时额度
           </span>
           <span className="flex items-center gap-2">
             <span className="font-kai text-lg"><Quota value={me.newapi_temp_balance} /></span>
@@ -536,12 +642,35 @@ export default function HomePage() {
   const qc = useQueryClient()
   const [flash, setFlash] = useState<{ quota: number; streak: number; ok: boolean; temporary: boolean } | null>(null)
   const [rainSeed, setRainSeed] = useState(0)
+  const [gateNow, setGateNow] = useState(() => new Date())
+
+  // 让长期停留在首页的标签页也能察觉配置时区已经跨日；真正发请求前仍会
+  // 在 pick() 内即时复核，后端 DoDraw 则继续承担最终权威校验。
+  useEffect(() => {
+    const timer = window.setInterval(() => setGateNow(new Date()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   const checkinView = useQuery({
     queryKey: ['checkin', me?.user.id],
     queryFn: () => api.get<CheckinView>('/api/checkin'),
     enabled: !!me?.bound,
     retry: false,
+  })
+
+  // 重新拉取期间 React Query 会暂时保留旧 data；必须把 isFetching 也纳入门禁，
+  // 避免跨日时短暂沿用“昨天已签到”状态解锁翻牌。
+  const checkinLoading = !!me?.bound && (checkinView.isPending || checkinView.isFetching)
+  const checkinError = !!me?.bound && checkinView.isError
+  const checkinGate = getCheckinGate({
+    authenticated: !!me,
+    bound: !!me?.bound,
+    loading: checkinLoading,
+    error: checkinError,
+    checkedToday: checkinView.data?.checked_today,
+    viewToday: checkinView.data?.today,
+    timezone: checkinView.data?.rules.timezone,
+    now: gateNow,
   })
 
   const activities = useQuery({
@@ -632,9 +761,23 @@ export default function HomePage() {
             </AnimatePresence>
 
             <div className="stagger grid items-start gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-              <CheckinCard view={checkinView.data} me={me} onChecked={onChecked} />
+              <CheckinCard
+                view={checkinView.data}
+                me={me}
+                onChecked={onChecked}
+                loading={checkinLoading}
+                error={checkinError}
+                stale={checkinGate === 'stale'}
+              />
               <div className="space-y-6">
-                <LuckyDrawCard me={me} onWin={() => setRainSeed(Math.random())} />
+                <LuckyDrawCard
+                  me={me}
+                  checkinView={checkinView.data}
+                  checkinLoading={checkinLoading}
+                  checkinError={checkinError}
+                  gateNow={gateNow}
+                  onWin={() => setRainSeed(Math.random())}
+                />
                 <Card className="p-6">
                   <h4 className="flex items-center gap-2 font-bold text-clover-800">
                     <Sparkles size={16} className="text-gold-500" /> 小站玩法

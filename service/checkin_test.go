@@ -252,6 +252,51 @@ func TestCheckinBlockedByNewAPICheckin(t *testing.T) {
 	}
 }
 
+// TestCheckinStillBlocksWhenLocalTemporaryDrawExists 验证即使福利站存在当日
+// 限时抽奖记录,也不能据此推断 new-api 的 checked_in_today 来源并放行签到。
+// 这条回归防止未来再次引入不可靠的“存量兼容”双发漏洞。
+func TestCheckinStillBlocksWhenLocalTemporaryDrawExists(t *testing.T) {
+	svc, mock, db := setupGrantService(t)
+	defer mock.Close()
+	atomic.StoreInt64(&mock.checkedInToday, 1)
+
+	user := model.User{
+		LinuxDOID: "local-draw-before-checkin", LinuxDOName: "u", TrustLevel: 2,
+		Status: 1, NewapiUserID: int64Ptr(42),
+	}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	today := TodayStr(DefaultCheckinConfig().Timezone, time.Now())
+	draw := model.Draw{
+		UserID: user.ID, DrawDate: today, Roll: 95, TierLabel: "小欧一把",
+		Quota: 500, QuotaType: QuotaTypeTemporary, Reason: DrawReasonOK,
+	}
+	if err := db.Create(&draw).Error; err != nil {
+		t.Fatalf("create draw: %v", err)
+	}
+	grant := model.Grant{
+		UserID: user.ID, NewapiUserID: 42, Type: GrantTypeDraw, RefID: draw.ID,
+		Quota: 500, QuotaType: QuotaTypeTemporary, Status: GrantStatusSuccess,
+	}
+	if err := db.Create(&grant).Error; err != nil {
+		t.Fatalf("create draw grant: %v", err)
+	}
+
+	_, err := DoCheckin(db, svc, fixedConfig(true, 1000), &user)
+	if !errors.Is(err, ErrCheckedInOnNewAPI) {
+		t.Fatalf("new-api 已签到时仍应拦截,实际 %v", err)
+	}
+	var checkins, checkinGrants int64
+	db.Model(&model.Checkin{}).Where("user_id = ?", user.ID).Count(&checkins)
+	db.Model(&model.Grant{}).
+		Where("user_id = ? AND type = ?", user.ID, "checkin").
+		Count(&checkinGrants)
+	if checkins != 0 || checkinGrants != 0 {
+		t.Fatalf("被拦截时不应新增签到记录/流水: %d/%d", checkins, checkinGrants)
+	}
+}
+
 // TestCheckinOpenTimeBoundary 验证开放时间边界判定与默认不限制。
 func TestCheckinOpenTimeBoundary(t *testing.T) {
 	cfg := fixedConfig(true, 1000)

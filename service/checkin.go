@@ -163,6 +163,9 @@ func DoCheckin(db *gorm.DB, grants *GrantService, cfg *CheckinConfig, user *mode
 		// 探测失败(new-api 不可达/旧版无此字段)一律放行:此时发放本身也会失败并进
 		// 入可重试流水,不因为探测不到就把用户挡在门外。
 		if u, err := grants.newapi.GetUser(*user.NewapiUserID); err == nil && u.CheckedInToday {
+			// 不能仅凭福利站本地抽奖记录推断这笔 new-api 状态的来源:用户也可能
+			// 先在 new-api 内置签到,再产生其他本地记录。为避免跨系统双发,任何明确
+			// 的 checked_in_today 都继续拦截;旧版/探测失败才按“未知”放行。
 			return nil, ErrCheckedInOnNewAPI
 		}
 	}

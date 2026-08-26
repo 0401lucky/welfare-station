@@ -25,7 +25,21 @@ func drawTestUser(t *testing.T, db *gorm.DB) *model.User {
 	if err := db.Create(u).Error; err != nil {
 		t.Fatalf("create user: %v", err)
 	}
+	markDrawTestCheckedIn(t, db, u)
 	return u
+}
+
+func markDrawTestCheckedIn(t *testing.T, db *gorm.DB, user *model.User) {
+	t.Helper()
+	checkin := &model.Checkin{
+		UserID:      user.ID,
+		CheckinDate: TodayStr(DefaultCheckinConfig().Timezone, time.Now()),
+		Quota:       1,
+		Streak:      1,
+	}
+	if err := db.Create(checkin).Error; err != nil {
+		t.Fatalf("create checkin: %v", err)
+	}
 }
 
 // singleTierConfig 造一个「必中某档」的配置:唯一档位铺满 1-100,
@@ -148,6 +162,39 @@ func TestSaveDrawConfigRejectsOverMaxGrant(t *testing.T) {
 	}
 }
 
+// TestDoDrawRequiresCheckin 锁定业务顺序:翻牌不能先于福利站签到落账。
+func TestDoDrawRequiresCheckin(t *testing.T) {
+	svc, mock, db := setupGrantService(t)
+	defer mock.Close()
+	drawSvc := NewDrawService(db, svc)
+
+	newapiID := int64(42)
+	user := &model.User{
+		LinuxDOID: "draw-before-checkin", LinuxDOName: "tester",
+		NewapiUserID: &newapiID, Status: 1,
+	}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	cfg := singleTierConfig(DrawTier{Label: "无奖", RewardType: QuotaTypeTemporary})
+
+	if _, err := drawSvc.DoDraw(cfg, budgetsFor(10000000), user); !errors.Is(err, ErrDrawRequiresCheckin) {
+		t.Fatalf("未签到翻牌应返回 ErrDrawRequiresCheckin,实际 %v", err)
+	}
+	var draws, grants, budgets int64
+	db.Model(&model.Draw{}).Where("user_id = ?", user.ID).Count(&draws)
+	db.Model(&model.Grant{}).Where("user_id = ? AND type = ?", user.ID, GrantTypeDraw).Count(&grants)
+	db.Model(&model.DailyBudget{}).Count(&budgets)
+	if draws != 0 || grants != 0 || budgets != 0 {
+		t.Fatalf("拒绝翻牌不应有副作用:draws=%d grants=%d budgets=%d", draws, grants, budgets)
+	}
+
+	markDrawTestCheckedIn(t, db, user)
+	if _, err := drawSvc.DoDraw(cfg, budgetsFor(10000000), user); err != nil {
+		t.Fatalf("签到落账后应可翻牌: %v", err)
+	}
+}
+
 // TestDoDrawOncePerDay 验证每人每天只能抽一次:第二次直接 ErrAlreadyDrawn。
 func TestDoDrawOncePerDay(t *testing.T) {
 	svc, mock, db := setupGrantService(t)
@@ -255,6 +302,7 @@ func TestDoDrawBudgetExhausted(t *testing.T) {
 	if err := db.Create(second).Error; err != nil {
 		t.Fatalf("create second user: %v", err)
 	}
+	markDrawTestCheckedIn(t, db, second)
 	res2, err := drawSvc.DoDraw(cfg, gameCfg, second)
 	if err != nil {
 		t.Fatalf("第二次抽奖不应报错(记录仍要写下): %v", err)
@@ -304,6 +352,7 @@ func TestDoDrawJackpotFallbackToTemporary(t *testing.T) {
 	if err := db.Create(second).Error; err != nil {
 		t.Fatalf("create second user: %v", err)
 	}
+	markDrawTestCheckedIn(t, db, second)
 	res2, err := drawSvc.DoDraw(cfg, gameCfg, second)
 	if err != nil {
 		t.Fatalf("第二次抽奖: %v", err)

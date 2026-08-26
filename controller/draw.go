@@ -22,7 +22,8 @@ func failDraw(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrAlreadyDrawn),
 		errors.Is(err, service.ErrDrawDisabled),
-		errors.Is(err, service.ErrDrawNotBound):
+		errors.Is(err, service.ErrDrawNotBound),
+		errors.Is(err, service.ErrDrawRequiresCheckin):
 		common.Fail(c, http.StatusBadRequest, err.Error())
 	default:
 		common.InternalError(c, err.Error())

@@ -29,6 +29,8 @@ var (
 	ErrAlreadyDrawn = errors.New("今天已经摇过四叶草啦,明天再来")
 	// ErrDrawNotBound 未绑定 new-api,中奖也没处发。
 	ErrDrawNotBound = errors.New("请先绑定 new-api 账号再来抽奖")
+	// ErrDrawRequiresCheckin 抽奖必须排在福利站当日签到落账之后。
+	ErrDrawRequiresCheckin = errors.New("请先完成今日签到再来翻牌")
 )
 
 // DrawService 承载每日幸运抽奖。发放一律走既有 GrantService,本服务不持有外呼逻辑
@@ -73,7 +75,7 @@ func pickQuota(t DrawTier) int64 {
 // DoDraw 执行一次每日抽奖(每人每天一次,幂等根 = uk_user_draw_date)。
 //
 // 流程与 DoCheckin 同构:
-//  1. 校验开关 / 绑定 / 当日是否已抽
+//  1. 校验开关 / 绑定 / 当日已签到 / 当日是否已抽
 //  2. 服务端摇幸运数字,命中档位,算金额
 //  3. 一个事务内:插 w_draws(唯一约束幂等) + 按档扣预算 + 按档写 pending w_grants
 //  4. 提交后同步外呼发放,失败转自动重试
@@ -89,6 +91,21 @@ func (s *DrawService) DoDraw(cfg *DrawConfig, gameCfg *GameConfig, user *model.U
 	}
 
 	now := time.Now()
+	// 抽奖依赖“签到已经落入 w_checkins”,因此前置门槛按签到配置自己的时区判断。
+	// 抽奖记录仍在下方按 draw_config 时区生成;两者默认均为 Asia/Shanghai。
+	checkinCfg, err := GetCheckinConfig(s.db)
+	if err != nil {
+		return nil, err
+	}
+	checkinDate := TodayStr(checkinCfg.Timezone, now)
+	checkedIn, err := hasCheckedInToday(s.db, user.ID, checkinDate)
+	if err != nil {
+		return nil, err
+	}
+	if !checkedIn {
+		return nil, ErrDrawRequiresCheckin
+	}
+
 	today := TodayStr(cfg.Timezone, now)
 
 	// 入口先查一次:给「今天已抽过」一个友好错误,而不是等唯一键抛库层错误。
@@ -115,7 +132,7 @@ func (s *DrawService) DoDraw(cfg *DrawConfig, gameCfg *GameConfig, user *model.U
 		draw  model.Draw
 		grant *model.Grant
 	)
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err = s.db.Transaction(func(tx *gorm.DB) error {
 		reward, quotaType, reason, err := s.resolveReward(tx, gameCfg, tier, wantQuota, today)
 		if err != nil {
 			return err
