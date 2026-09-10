@@ -7,5 +7,14 @@
 .watermelon-mobile-actions{position:fixed;z-index:40;right:0;bottom:0;left:0;padding:10px max(12px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));border-top:1px solid #dcf1e2;background:rgba(255,255,255,.95);box-shadow:0 -6px 28px rgba(31,106,68,.08);backdrop-filter:blur(14px)}
 .watermelon-mobile-actions button{padding-right:12px;padding-left:12px;font-size:14px}
 @media(min-width:768px){.watermelon-layout{grid-template-columns:minmax(0,1fr) 290px;column-gap:1.5rem}.watermelon-intro{grid-column:1/-1}.watermelon-board-wrap{grid-column:1}.watermelon-rewards{grid-column:2}.watermelon-board{height:clamp(500px,67dvh,670px)}}
-@media(min-width:1100px){.watermelon-layout{grid-template-columns:minmax(190px,.85fr) minmax(360px,1.8fr) minmax(240px,1fr);gap:1.5rem}.watermelon-intro{grid-column:1;padding-top:2rem}.watermelon-board-wrap{grid-column:2}.watermelon-rewards{grid-column:3;padding-top:1.5rem}.watermelon-board{height:clamp(540px,70dvh,710px)}}
+@media(min-width:1100px){
+  .watermelon-page>main,.watermelon-page>header>div{max-width:1440px}
+  .watermelon-page>main>nav{min-height:52px;padding-top:4px;padding-bottom:4px}
+  .watermelon-layout{grid-template-columns:minmax(190px,240px) minmax(360px,1fr) minmax(260px,304px);gap:1.5rem}
+  .watermelon-intro{grid-column:1;padding-top:1.5rem}
+  .watermelon-intro h1{font-size:42px}
+  .watermelon-board-wrap{grid-column:2}
+  .watermelon-rewards{grid-column:3;padding-top:1.5rem}
+  .watermelon-board{height:clamp(480px,calc(100dvh - 144px),960px)}
+}
 @media(max-width:767px){.watermelon-board-wrap{margin:-.5rem -.75rem -.25rem}.watermelon-rewards{margin-top:-.25rem}.watermelon-page>main{padding-bottom:calc(120px + env(safe-area-inset-bottom))}}
