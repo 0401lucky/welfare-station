@@ -1,9 +1,75 @@
 package service
 
 import (
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestWatermelonConfigurationDefaultsAndLegacyOptIn(t *testing.T) {
+	fresh := DefaultGameConfig().Games[gameTypeWatermelon]
+	if !fresh.Enabled || fresh.RewardType != QuotaTypePermanent || fresh.DailyClaimLimit != 3 || fresh.UserDailyCap != 150000 || fresh.CooldownSeconds != 60 {
+		t.Fatalf("unexpected new-install watermelon rules: %+v", fresh)
+	}
+	if !reflect.DeepEqual(fresh.Tiers, []GameTier{{Tile: 64, Quota: 10000}, {Tile: 128, Quota: 25000}, {Tile: 256, Quota: 50000}, {Tile: 512, Quota: 100000}}) {
+		t.Fatal("fruit payout tiers changed")
+	}
+	db := grantDB(t)
+	legacy := `{"timezone":"UTC","games":{"2048":{"enabled":true,"daily_claim_limit":7,"user_daily_cap":12345,"tiers":[{"tile":512,"quota":777}]}},"budgets":{"game":{"enabled":false,"daily":321},"total":{"enabled":true,"daily":654}}}`
+	if err := SetSetting(db, GameConfigKey, legacy); err != nil {
+		t.Fatal(err)
+	}
+	got, err := GetGameConfig(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fresh
+	want.Enabled = false
+	if !reflect.DeepEqual(got.Games[gameTypeWatermelon], want) {
+		t.Fatalf("legacy installation must show editable disabled defaults: %+v", got.Games[gameTypeWatermelon])
+	}
+	if got.Games[gameType2048].DailyClaimLimit != 7 || got.Games[gameType2048].Tiers[0].Quota != 777 || got.Budgets[BudgetScopeGame] != (BudgetRule{Enabled: false, Daily: 321}) || got.Budgets[BudgetScopeTotal] != (BudgetRule{Enabled: true, Daily: 654}) {
+		t.Fatal("legacy explicit settings overwritten")
+	}
+	raw, err := GetSetting(db, GameConfigKey)
+	if err != nil || raw != legacy {
+		t.Fatal("read-only compatibility changed persisted settings")
+	}
+	custom := watermelonRules(999)
+	custom.Enabled = false
+	custom.CooldownSeconds = 15
+	got.Games[gameTypeWatermelon] = custom
+	if err := SaveGameConfig(db, got, testMaxGrantQuota); err != nil {
+		t.Fatal(err)
+	}
+	again, err := GetGameConfig(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(again.Games[gameTypeWatermelon], custom) {
+		t.Fatal("explicit disabled/custom watermelon values overwritten")
+	}
+}
+
+func TestWatermelonOnlySynthesizableRewardTiersAllowed(t *testing.T) {
+	for _, tile := range []int{2, 4, 64, 512, 1024} {
+		t.Run(strconv.Itoa(tile), func(t *testing.T) {
+			cfg := DefaultGameConfig()
+			rules := cfg.Games[gameTypeWatermelon]
+			rules.Tiers = []GameTier{{Tile: tile, Quota: 1000}}
+			cfg.Games[gameTypeWatermelon] = rules
+			err := SaveGameConfig(grantDB(t), cfg, testMaxGrantQuota)
+			if tile < 4 || tile > 512 {
+				if err == nil {
+					t.Fatal("unreachable/spawn-only reward tile accepted")
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
 
 const testMaxGrantQuota = int64(5000000)
 

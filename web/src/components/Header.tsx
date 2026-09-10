@@ -54,12 +54,16 @@ export default function Header() {
     window.location.reload()
   }
 
+  const isActive = (to: string) => loc.pathname === to || (to !== '/' && loc.pathname.startsWith(`${to}/`))
   const navLink = (to: string, label: string, icon: React.ReactNode) => (
     <Link
       to={to}
+      aria-label={label}
+      title={label}
+      aria-current={isActive(to) ? 'page' : undefined}
       className={cn(
-        'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors',
-        loc.pathname === to
+        'flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500',
+        isActive(to)
           ? 'bg-clover-100 font-medium text-clover-800'
           : 'text-clover-700/70 hover:bg-clover-50 hover:text-clover-800',
       )}
@@ -72,12 +76,12 @@ export default function Header() {
   return (
     <header className="glass sticky top-0 z-40">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4">
-        <Link to="/" className="flex items-center gap-2">
+        <Link to="/" className="flex items-center gap-2" aria-label="福利站首页">
           <span className="animate-sway"><Clover size={30} /></span>
           <span className="title-kai hidden text-xl sm:block">{site?.site_name ?? '福利站'}</span>
         </Link>
 
-        <nav className="flex items-center gap-1">
+        <nav className="flex items-center gap-0.5 sm:gap-1" aria-label="主导航">
           {navLink('/', '小站', <Sprout size={16} />)}
           {navLink('/game', '小游戏', <Gamepad2 size={16} />)}
           {navLink('/records', '我的记录', <ScrollText size={16} />)}

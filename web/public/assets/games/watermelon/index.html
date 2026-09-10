@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#faf6e8">
+  <title>软软西瓜 · MELON MELT</title>
+  <style>
+    :root{color-scheme:light;--ink:#1d5439;--muted:#5f8770;--cream:#faf6e8;--green:#268552;--line:#1f6a4426}
+    *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}
+    body{color:var(--ink);background:radial-gradient(ellipse at 25% 0%,#f0f9f2 0%,transparent 62%),var(--cream);font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;-webkit-tap-highlight-color:transparent}
+    button{font:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}button:focus-visible,canvas:focus-visible{outline:3px solid #ddb45f;outline-offset:4px}button:disabled{opacity:.5;cursor:default}
+    .game{height:100%;height:100dvh;max-width:480px;margin:auto;padding:12px 16px max(10px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:8px;user-select:none;-webkit-user-select:none}
+    .top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none}.eyebrow{margin:0 0 2px;font:600 9px/1.4 sans-serif;letter-spacing:.26em;color:var(--muted)}h1{margin:0;font-family:KaiTi,"STKaiti","Noto Serif SC",serif;font-size:25px;letter-spacing:.04em}.subtitle{font-size:10px;letter-spacing:.12em;color:var(--muted);margin-left:7px;font-family:inherit;font-weight:400}.tools{display:flex;gap:5px}.icon-button{width:44px;height:44px;border:1px solid var(--line);border-radius:50%;background:#ffffffa6;color:var(--ink);display:grid;place-items:center;backdrop-filter:blur(8px)}.icon-button:hover{background:#fff}.icon-button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.65;stroke-linecap:round;stroke-linejoin:round}
+    .scorebar{display:flex;align-items:center;min-height:53px;border-top:1px solid var(--line);margin-top:3px;padding-top:8px;flex:none}.scorebox{display:flex;gap:22px;align-items:center;flex:1}.scorebox small{display:block;font-size:10px;color:var(--muted)}.scorebox strong{font-size:28px;line-height:1.15;font-variant-numeric:tabular-nums}.scorebox .best strong{font-size:18px;color:var(--muted)}.next{display:flex;align-items:center;gap:5px;padding:4px 10px 4px 8px;border-radius:15px;border:1px solid var(--line);background:#ffffff66;font-size:10px;color:var(--muted)}#next-fruit{width:38px;height:38px}
+    .stage{position:relative;min-height:0;flex:1;display:flex;justify-content:center;align-items:center}#board{height:100%;width:100%;display:block;object-fit:contain;touch-action:none;outline-offset:-5px}.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:12px;pointer-events:none}.overlay[hidden]{display:none}.dialog{width:min(285px,88%);padding:24px 22px 20px;border-radius:26px;border:1px solid #fff;background:#faf6e8ed;box-shadow:0 16px 65px #1d54390d,0 2px 10px #1d543906;text-align:center;pointer-events:auto;backdrop-filter:blur(12px)}.dialog .kicker{margin:0 0 9px;font:600 9px/1.5 sans-serif;letter-spacing:.22em;color:var(--muted)}.dialog h2{font-family:KaiTi,"STKaiti","Noto Serif SC",serif;font-size:27px;line-height:1.4;margin:0 0 9px;letter-spacing:.03em}.dialog p{color:var(--muted);font-size:12px;line-height:1.9;margin:0 0 18px;white-space:pre-line}.primary{min-height:46px;width:100%;border:0;border-radius:24px;background:var(--ink);color:var(--cream);font-size:13px;letter-spacing:.06em;box-shadow:0 5px 12px #1d543912;transition:transform .15s,background .15s}.primary:hover{background:var(--green)}.primary:active{transform:scale(.98)}.secondary{border:0;background:transparent;color:var(--muted);min-height:44px;font-size:12px;margin-top:4px;width:100%}
+    .bottom{flex:none;text-align:center}.evolution{display:flex;justify-content:center;align-items:center;gap:5px;height:39px}.fruit-dot{width:29px;height:34px;object-fit:contain}.evo-arrow{font-size:10px;color:#8fd6a8}.hint{font-size:10px;line-height:1.6;color:var(--muted);margin:6px 0 0;min-height:16px;letter-spacing:.04em}.hint.warning{color:#d4574e}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+    html.embed,html.embed body{background:transparent}.embed .game{max-width:none;padding:0;gap:0}.embed .top{position:absolute;z-index:2;top:3px;right:8px}.embed .brand,.embed .scorebar,.embed .bottom{display:none}.embed .tools{gap:4px}.embed .icon-button{width:44px;height:44px;background:#ffffff90}.embed .dialog{transform:translateY(-25px)}
+    @media(max-height:570px){.game{padding-top:5px;gap:4px}.top h1{font-size:21px}.subtitle{display:none}.scorebar{min-height:43px;padding-top:5px}.scorebox strong{font-size:24px}.dialog{padding:18px 18px}.dialog h2{font-size:23px}.dialog p{margin-bottom:12px}.hint{margin-top:3px}.evolution{height:26px}.fruit-dot{width:23px;height:27px}.embed .icon-button{width:44px;height:44px}}
+    @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+  </style>
+</head>
+<body>
+<main class="game" aria-label="软软西瓜，半流体合成西瓜">
+  <header class="top">
+    <div class="brand"><p class="eyebrow">MELON MELT</p><h1>软软西瓜<span class="subtitle">半流体合成</span></h1></div>
+    <div class="tools">
+      <button id="sound-button" class="icon-button" type="button" aria-label="开启声音" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path id="sound-waves" d="m16 9 5 6m0-6-5 6"/></svg></button>
+      <button id="pause-button" class="icon-button" type="button" aria-label="暂停游戏" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg></button>
+    </div>
+  </header>
+  <div class="scorebar">
+    <div class="scorebox"><div><small>这一杯的分数</small><strong id="score">0</strong></div><div class="best"><small>本机最佳</small><strong id="best">0</strong></div></div>
+    <div class="next"><canvas id="next-fruit" width="96" height="96" aria-hidden="true"></canvas><span>下一颗<br><span id="next-name">葡萄</span></span></div>
+  </div>
+  <div class="stage">
+    <canvas id="board" width="720" height="1100" tabindex="0" aria-label="水果容器。左右拖动瞄准，松手落下；方向键移动，空格或回车落下；P 或 Escape 暂停。"></canvas>
+    <div id="overlay" class="overlay"><section id="dialog" class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+      <p class="kicker" id="dialog-kicker">A LITTLE SOFTNESS</p><h2 id="dialog-title">让快乐，软着陆。</h2>
+      <p id="dialog-copy">左右移动，松手投下一颗水果。
+相同水果相遇，软软地融成更大一颗。
+自由练习 · 不计账户额度</p>
+      <button class="primary" id="start-button" type="button">开始练习</button>
+      <button class="secondary" id="restart-button" type="button" hidden>重新练习</button>
+    </section></div>
+  </div>
+  <footer class="bottom"><div id="evolution" class="evolution" aria-label="合成路线：葡萄、樱桃、橘子、柠檬、猕猴桃、桃子、柿子、蜜瓜、西瓜"></div><p id="hint" class="hint">一点重力，一点弹性。把快乐，慢慢合成。</p></footer>
+  <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
+</main>
+<script src="./engine.js"></script>
+<script>
+(() => {
+  'use strict';
+  const E = MelonMelt;
+  const $ = id => document.getElementById(id);
+  const canvas = $('board'), ctx = canvas.getContext('2d');
+  const nextCanvas = $('next-fruit'), nextCtx = nextCanvas.getContext('2d');
+  const scoreEl = $('score'), bestEl = $('best'), hintEl = $('hint'), overlay = $('overlay');
+  const pauseButton = $('pause-button'), startButton = $('start-button'), restartButton = $('restart-button'), soundButton = $('sound-button');
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const params = new URLSearchParams(window.location.search);
+  const embedded = params.get('embed') === '1' && window.parent !== window;
+  const channel = params.get('channel') || '';
+  if (embedded) document.documentElement.classList.add('embed');
+  const storageKey = 'clover.melon-melt.best.v1';
+  let best = 0;
+  try { const saved = Number(localStorage.getItem(storageKey)); if (Number.isFinite(saved) && saved >= 0) best = saved; } catch { /* Local records are optional. */ }
+  let game = E.createGame({ best });
+  let mode = 'practice', sessionId = null, runId = '', locked = false, completed = false, restoring = false, restoreGeneration = 0;
+  const particles = [], popups = [];
+  let sound = false, audio = null, activePointer = null, previousTime = 0, lastPhase = '', lastScore = -1, lastNext = -1, lastBest = best, lastReportTick = -1;
+  let viewport = { x: 0, y: 0, scale: 1, dpr: 1 }, animationFrame = 0, disposed = false, dirty = true;
+  const W = 360, H = 550;
+
+  // The sprite's core ellipse maps to the physical perimeter. The mesh extends
+  // outside that ellipse so a cherry stem or leaf is retained in the same warp.
+  const sprites = E.LEVELS.map(level => {
+    const image = new Image();
+    const sprite = { image, ready: false, body: { cx: 256, cy: 276, rx: 196, ry: 192 } };
+    image.onload = () => { sprite.ready = true; lastNext = -1; dirty = true; };
+    image.onerror = () => { sprite.ready = false; };
+    image.src = './fruits/' + level.id + '.webp';
+    return sprite;
+  });
+  fetch('./fruits/manifest.json').then(response => response.ok ? response.json() : null).then(manifest => {
+    if (manifest?.version !== 1 || !Array.isArray(manifest.items)) return;
+    for (const item of manifest.items) {
+      const level = E.LEVELS.findIndex(fruit => fruit.id === item.id), body = item.body;
+      if (level < 0 || !body || !['cx','cy','rx','ry'].every(key => Number.isFinite(body[key])) || body.rx <= 0 || body.ry <= 0) continue;
+      sprites[level].body = body;
+    }
+    lastNext = -1; dirty = true;
+  }).catch(() => {});
+
+  const demo = [E.createFruit(-1, 8, 211, 430), E.createFruit(-2, 5, 79, 472), E.createFruit(-3, 4, 296, 480), E.createFruit(-4, 2, 76, 397), E.createFruit(-5, 0, 317, 419)];
+  for (const body of demo) {
+    for (const point of body.nodes) { point.x = body.x + point.rx * 1.05; point.y = body.y + point.ry / 1.05; }
+    E.measure(body);
+  }
+  for (let i = 0; i < E.LEVELS.length; i++) {
+    if (i) { const arrow = document.createElement('span'); arrow.className = 'evo-arrow'; arrow.textContent = '›'; arrow.setAttribute('aria-hidden', 'true'); $('evolution').append(arrow); }
+    const image = document.createElement('img'); image.className = 'fruit-dot'; image.src = './fruits/' + E.LEVELS[i].id + '.webp'; image.alt = E.LEVELS[i].name; $('evolution').append(image);
+  }
+  function resize() {
+    dirty = true;
+    const rect = canvas.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.round(rect.width * dpr)); canvas.height = Math.max(1, Math.round(rect.height * dpr));
+    const scale = Math.max(.01, Math.min(rect.width / W, rect.height / H));
+    viewport = { x: (rect.width - W * scale) / 2, y: (rect.height - H * scale) / 2, scale, dpr };
+  }
+  function path(context, nodes) {
+    context.beginPath();
+    const last = nodes[nodes.length - 1], first = nodes[0]; context.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2);
+    for (let i = 0; i < nodes.length; i++) { const p = nodes[i], q = nodes[(i + 1) % nodes.length]; context.quadraticCurveTo(p.x, p.y, (p.x + q.x) / 2, (p.y + q.y) / 2); }
+    context.closePath();
+  }
+  function triangle(context, image, source, target) {
+    const [s0,s1,s2] = source, [d0,d1,d2] = target;
+    const sx1 = s1.x-s0.x, sy1 = s1.y-s0.y, sx2 = s2.x-s0.x, sy2 = s2.y-s0.y;
+    const dx1 = d1.x-d0.x, dy1 = d1.y-d0.y, dx2 = d2.x-d0.x, dy2 = d2.y-d0.y;
+    const determinant = sx1*sy2-sx2*sy1;
+    if (Math.abs(determinant) < .0001) return;
+    const a = (dx1*sy2-dx2*sy1)/determinant, b = (dy1*sy2-dy2*sy1)/determinant;
+    const c = (dx2*sx1-dx1*sx2)/determinant, d = (dy2*sx1-dy1*sx2)/determinant;
+    context.save();
+    // Slight clip overlap removes antialiasing cracks between adjoining sectors.
+    const mx = (d0.x+d1.x+d2.x)/3, my = (d0.y+d1.y+d2.y)/3;
+    context.beginPath();
+    target.forEach((point,i) => {
+      const dx = point.x-mx, dy = point.y-my, length = Math.sqrt(dx*dx+dy*dy) || 1;
+      const x = point.x+dx/length*.28, y = point.y+dy/length*.28;
+      if (i) context.lineTo(x,y); else context.moveTo(x,y);
+    });
+    context.closePath(); context.clip();
+    context.transform(a,b,c,d,d0.x-a*s0.x-c*s0.y,d0.y-b*s0.x-d*s0.y);
+    context.drawImage(image,0,0);
+    context.restore();
+  }
+  function drawFruit(context, body, opacity = 1) {
+    const sprite = sprites[body.level], style = E.LEVELS[body.level];
+    context.save(); context.globalAlpha = opacity;
+    if (sprite.ready) {
+      const core = sprite.body, cx = body.x, cy = body.y, image = sprite.image;
+      const edgeX = Math.max(core.cx,image.width-core.cx)/core.rx;
+      const edgeY = Math.max(core.cy,image.height-core.cy)/core.ry;
+      const outer = Math.sqrt(edgeX*edgeX+edgeY*edgeY)*1.04;
+      const sourceCenter = { x:core.cx, y:core.cy }, targetCenter = { x:cx, y:cy };
+      for (let i=0;i<body.nodes.length;i++) {
+        const p=body.nodes[i], q=body.nodes[(i+1)%body.nodes.length];
+        const source=[sourceCenter,{x:core.cx+p.rx/body.radius*core.rx*outer,y:core.cy+p.ry/body.radius*core.ry*outer},{x:core.cx+q.rx/body.radius*core.rx*outer,y:core.cy+q.ry/body.radius*core.ry*outer}];
+        const target=[targetCenter,{x:cx+(p.x-cx)*outer,y:cy+(p.y-cy)*outer},{x:cx+(q.x-cx)*outer,y:cy+(q.y-cy)*outer}];
+        triangle(context,image,source,target);
+      }
+    } else {
+      // Only a loading/error fallback; the shipped game uses local fruit art.
+      path(context,body.nodes);
+      const gradient=context.createLinearGradient(body.bounds.left,body.bounds.top,body.bounds.right,body.bounds.bottom);
+      gradient.addColorStop(0,style.light);gradient.addColorStop(1,style.color);context.fillStyle=gradient;context.fill();
+      context.fillStyle='#1d5439';
+      for(const side of [-1,1]){context.beginPath();context.ellipse(body.x+side*body.radius*.2,body.y,body.radius*.05,body.radius*.075,0,0,Math.PI*2);context.fill();}
+    }
+    context.restore();
+  }
+  function vessel() {
+    ctx.fillStyle='#1d54390a';ctx.beginPath();ctx.ellipse(180,534,142,8,0,0,Math.PI*2);ctx.fill();
+    const glass=ctx.createLinearGradient(24,180,338,490);glass.addColorStop(0,'#ffffff50');glass.addColorStop(.5,'#ffffff14');glass.addColorStop(1,'#bce3c91c');
+    ctx.fillStyle=glass;ctx.beginPath();ctx.moveTo(24,58);ctx.lineTo(24,490);ctx.quadraticCurveTo(24,526,59,526);ctx.lineTo(301,526);ctx.quadraticCurveTo(336,526,336,490);ctx.lineTo(336,58);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='#1f6a443a';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(37,58);ctx.lineTo(29,58);ctx.quadraticCurveTo(23,58,23,66);ctx.lineTo(23,493);ctx.quadraticCurveTo(23,528,58,528);ctx.lineTo(302,528);ctx.quadraticCurveTo(337,528,337,493);ctx.lineTo(337,66);ctx.quadraticCurveTo(337,58,331,58);ctx.lineTo(323,58);ctx.stroke();
+    ctx.strokeStyle='#ffffffcc';ctx.lineWidth=1.8;ctx.stroke();
+    ctx.strokeStyle='#8fd6a838';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(28,73);ctx.lineTo(28,490);ctx.quadraticCurveTo(28,522,60,522);ctx.lineTo(300,522);ctx.stroke();
+    const warning=game.overflow>0;ctx.strokeStyle=warning?'#d4574eb0':'#d4574e60';ctx.lineWidth=1;ctx.setLineDash([5,6]);ctx.beginPath();ctx.moveTo(33,game.warningY);ctx.lineTo(327,game.warningY);ctx.stroke();ctx.setLineDash([]);
+    ctx.font='8px sans-serif';ctx.textAlign='left';ctx.fillStyle='#5f877063';
+    for(let y=200;y<500;y+=60){ctx.beginPath();ctx.moveTo(33,y);ctx.lineTo(37,y);ctx.strokeStyle='#5f877026';ctx.stroke();ctx.fillText(String(520-y),40,y+3);}
+    if(warning){ctx.fillStyle='#d4574e30';ctx.fillRect(33,game.warningY-2,294*Math.min(1,game.overflow/E.OVERFLOW_GRACE),3);}
+  }
+  function preview() {
+    if(game.phase==='over'||game.phase==='ready'||completed)return;
+    const body=E.createFruit(0,game.held,game.aim,87);
+    if(game.cooldown<=0){ctx.setLineDash([2,6]);ctx.strokeStyle='#26855240';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(game.aim,112);ctx.lineTo(game.aim,510);ctx.stroke();ctx.setLineDash([]);}
+    drawFruit(ctx,body,game.cooldown>0?.35:1);
+  }
+  function render(dt) {
+    ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.setTransform(viewport.scale*viewport.dpr,0,0,viewport.scale*viewport.dpr,viewport.x*viewport.dpr,viewport.y*viewport.dpr);
+    vessel();
+    ctx.font='10px sans-serif';ctx.textAlign='left';ctx.fillStyle='#5f8770';ctx.fillText(game.overflow>0?'快满啦，让水果慢慢落下':'移动瞄准 · 松手投放',34,27);
+    for(const body of game.phase==='ready'?demo:game.world.bodies)drawFruit(ctx,body);
+    preview();
+    for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.life-=dt;if(p.life<=0){particles.splice(i,1);continue;}p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=125*dt;ctx.globalAlpha=p.life/.6;ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();}ctx.globalAlpha=1;
+    for(let i=popups.length-1;i>=0;i--){const p=popups[i];p.life-=dt;if(p.life<=0){popups.splice(i,1);continue;}ctx.globalAlpha=Math.min(1,p.life*2);ctx.fillStyle='#1d5439';ctx.font='600 15px sans-serif';ctx.textAlign='center';ctx.fillText(p.text,p.x,p.y-(1-p.life)*24);}ctx.globalAlpha=1;
+  }
+  function syncSound() {
+    soundButton.setAttribute('aria-pressed',String(sound));soundButton.setAttribute('aria-label',sound?'关闭声音':'开启声音');
+    $('sound-waves').setAttribute('d',sound?'M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14':'m16 9 5 6m0-6-5 6');
+  }
+  function silence(){sound=false;syncSound();}
+  function tone(level,merge=false) {
+    if(!sound)return;
+    try {
+      if(!audio){const AudioContext=window.AudioContext||window.webkitAudioContext;if(!AudioContext){silence();return;}audio=new AudioContext();}
+      if(audio.state==='suspended')audio.resume().catch(silence);
+      const osc=audio.createOscillator(),gain=audio.createGain(),now=audio.currentTime;osc.type='sine';osc.frequency.setValueAtTime((merge?360:235)*Math.pow(1.12,level),now);osc.frequency.exponentialRampToValueAtTime((merge?510:130)*Math.pow(1.12,level),now+.14);gain.gain.setValueAtTime(0,now);gain.gain.linearRampToValueAtTime(.065,now+.012);gain.gain.exponentialRampToValueAtTime(.001,now+.22);osc.connect(gain);gain.connect(audio.destination);osc.start(now);osc.stop(now+.24);
+    }catch{silence();}
+  }
+  function progress() {
+    return {tick:game.tickCount,moves:game.drops,score:game.score,best:game.best,highest:game.highest,held:game.held,next:game.next,phase:game.phase,overflow:game.overflow,sound,locked};
+  }
+  function post(type,data={}) {
+    if(!embedded)return;
+    window.parent.postMessage({protocol:'melon-melt',version:1,channel,session_id:sessionId,run_id:runId,type,...data},window.location.origin);
+  }
+  function report(){lastReportTick=game.tickCount;post('progress',{progress:progress()});}
+  function consumeEvents() {
+    for(const event of game.events){
+      if(event.type==='drop')tone(event.level);
+      if(event.type==='merge'){
+        tone(event.level,true);popups.push({x:event.x,y:event.y-E.LEVELS[event.level].radius*.5,text:'+'+event.points,life:1});
+        if(!reducedMotion)for(let i=0;i<8;i++){const a=i*Math.PI/4;particles.push({x:event.x,y:event.y,vx:Math.cos(a)*(32+event.level*8),vy:Math.sin(a)*44-32,r:1.5+event.level*.22,color:E.LEVELS[event.level].color,life:.6});}
+        if(event.level===E.LEVELS.length-1)$('announcement').textContent='合成大西瓜！';
+      }
+      if(event.type==='over')$('announcement').textContent='这一杯装满了，获得 '+game.score+' 分。';
+    }
+    game.events.length=0;
+  }
+  function syncUI() {
+    if(lastScore!==game.score){lastScore=game.score;scoreEl.textContent=String(game.score);report();}
+    bestEl.textContent=String(game.best);
+    if(lastBest!==game.best){lastBest=game.best;try{localStorage.setItem(storageKey,String(game.best));}catch{}}
+    if(lastNext!==game.next){lastNext=game.next;nextCtx.clearRect(0,0,96,96);const sprite=sprites[game.next];if(sprite.ready)nextCtx.drawImage(sprite.image,4,4,88,88);else{nextCtx.save();nextCtx.translate(48,54);const scale=29/E.LEVELS[game.next].radius;nextCtx.scale(scale,scale);drawFruit(nextCtx,E.createFruit(-1,game.next,0,0));nextCtx.restore();}$('next-name').textContent=E.LEVELS[game.next].name;}
+    pauseButton.disabled=game.phase==='ready'||game.phase==='over'||locked;pauseButton.setAttribute('aria-label',game.phase==='paused'?'继续游戏':'暂停游戏');
+    const phaseKey=game.phase+':'+mode+':'+locked+':'+completed;
+    if(lastPhase===phaseKey)return;lastPhase=phaseKey;dirty=true;
+    overlay.hidden=game.phase==='playing'&&!locked;restartButton.hidden=game.phase!=='paused'||mode==='challenge';startButton.disabled=locked&&!completed;
+    if(completed){$('dialog-kicker').textContent='A LITTLE REWARD';$('dialog-title').textContent='这一杯，已经收好。';$('dialog-copy').textContent='本局已结算，奖励结果见额度面板。\n想放松一下，可以继续自由练习。';startButton.textContent='自由练习';}
+    else if(locked){$('dialog-kicker').textContent='KEEP YOUR LITTLE JOY';$('dialog-title').textContent='这一杯，先替你收好。';$('dialog-copy').textContent='游戏已暂停。\n正在保存进度或完成本局结算。';startButton.textContent='请稍候…';}
+    else if(game.phase==='ready'){$('dialog-kicker').textContent='A LITTLE SOFTNESS';$('dialog-title').textContent='让快乐，软着陆。';$('dialog-copy').textContent='左右移动，松手投下一颗水果。\n相同水果相遇，软软地融成更大一颗。\n自由练习 · 不计账户额度';startButton.textContent='开始练习';}
+    else if(game.phase==='paused'){$('dialog-kicker').textContent='TAKE A SOFT BREAK';$('dialog-title').textContent='快乐，等你回来。';$('dialog-copy').textContent=mode==='challenge'?'额度挑战已暂停，进度还在。\n准备好时，我们接着合成。':'果冻也需要歇一歇。\n准备好时，我们接着来。';startButton.textContent='继续这一杯';}
+    else if(game.phase==='over'){$('dialog-kicker').textContent='A CUP FULL OF JOY';$('dialog-title').textContent='这一杯，装满快乐。';$('dialog-copy').textContent=game.score+' 分 · '+(E.LEVELS[game.highest]?.name||'还差一次合成')+'\n'+(mode==='challenge'?'按本局最高合成水果领取额度。':'本机最佳 '+game.best+' · 练习不计账户额度');startButton.textContent=mode==='challenge'?'结算这一杯':'再练一杯';}
+    hintEl.classList.toggle('warning',game.overflow>0);hintEl.textContent=game.phase==='playing'?'左右拖动 · 松手落下 · 相同水果，贴贴合成':game.phase==='paused'?'已暂停 · 准备好再继续':'一点重力，一点弹性。把快乐，慢慢合成。';
+    report();
+    if(!embedded&&(game.phase==='paused'||game.phase==='over'))startButton.focus({preventScroll:true});
+  }
+  function startPracticeRound(fresh) {
+    // A restart is a new practice draw. Initial start keeps the previewed seed;
+    // challenge restores and pause/resume never pass through this reseed path.
+    if(fresh)game=E.createGame({best:Math.max(game.best,lastBest,best)});
+    E.start(game);particles.length=0;popups.length=0;
+  }
+  function begin() {
+    if(completed){post('practice');return;}
+    if(locked||restoring)return;
+    if(mode==='challenge'&&game.phase==='over'){post('claim');return;}
+    if(game.phase==='paused')E.resume(game);else if(mode==='practice')startPracticeRound(game.phase!=='ready');else return;
+    previousTime=0;activePointer=null;syncUI();report();canvas.focus({preventScroll:true});tone(0);
+  }
+  function togglePause() {
+    if(locked||restoring)return;
+    if(game.phase==='playing'){E.pause(game);activePointer=null;}else if(game.phase==='paused'){E.resume(game);previousTime=0;canvas.focus({preventScroll:true});}syncUI();report();
+  }
+  function drop(x=game.aim) {
+    if(locked||restoring||game.phase!=='playing')return;
+    const rounded=Math.max(0,Math.min(360,Math.round(x))),tick=game.tickCount;
+    if(E.drop(game,rounded)){post('drop',{drop:{tick,x:rounded},moves:game.drops,progress:progress()});report();}
+  }
+  function pointerX(event){const rect=canvas.getBoundingClientRect();return Math.round((event.clientX-rect.left-viewport.x)/viewport.scale);}
+  canvas.addEventListener('pointerdown',event=>{
+    if(!event.isPrimary||event.button!==0||game.phase!=='playing'||locked||restoring||activePointer!==null)return;
+    event.preventDefault();activePointer=event.pointerId;canvas.setPointerCapture(event.pointerId);canvas.focus({preventScroll:true});E.aim(game,pointerX(event));
+  });
+  canvas.addEventListener('pointermove',event=>{if(game.phase!=='playing'||locked||restoring)return;if(activePointer===event.pointerId||(activePointer===null&&event.pointerType==='mouse'))E.aim(game,pointerX(event));});
+  canvas.addEventListener('pointerup',event=>{if(activePointer!==event.pointerId)return;event.preventDefault();activePointer=null;if(canvas.hasPointerCapture(event.pointerId))canvas.releasePointerCapture(event.pointerId);drop(pointerX(event));});
+  const cancelPointer=event=>{if(activePointer===event.pointerId)activePointer=null;};canvas.addEventListener('pointercancel',cancelPointer);canvas.addEventListener('lostpointercapture',cancelPointer);
+  document.addEventListener('keydown',event=>{
+    if(event.altKey||event.ctrlKey||event.metaKey||restoring)return;
+    if(event.key==='Escape'||event.key.toLowerCase()==='p'){event.preventDefault();if(!event.repeat)togglePause();return;}
+    if(event.target instanceof HTMLButtonElement)return;
+    if(['ArrowLeft','ArrowRight',' ','Enter'].includes(event.key))event.preventDefault();
+    if((event.key===' '||event.key==='Enter')&&!event.repeat&&(game.phase==='ready'||game.phase==='over')){begin();return;}
+    if(game.phase!=='playing'||locked)return;
+    if(event.key==='ArrowLeft')E.aim(game,game.aim-12);if(event.key==='ArrowRight')E.aim(game,game.aim+12);
+    if((event.key===' '||event.key==='Enter')&&!event.repeat)drop();
+  });
+  startButton.addEventListener('click',begin);restartButton.addEventListener('click',()=>{if(mode!=='practice'||locked||restoring)return;startPracticeRound(true);previousTime=0;activePointer=null;syncUI();report();canvas.focus({preventScroll:true});});pauseButton.addEventListener('click',togglePause);
+  soundButton.addEventListener('click',()=>{sound=!sound;syncSound();tone(1);report();});
+  function backgroundPause(){if(game.phase==='playing'){E.pause(game);activePointer=null;syncUI();}previousTime=0;report();}
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)backgroundPause();});window.addEventListener('blur',backgroundPause);
+  window.addEventListener('pagehide',()=>{backgroundPause();disposed=true;cancelAnimationFrame(animationFrame);resizeObserver.disconnect();if(audio&&audio.state!=='closed')audio.close().catch(()=>{});});
+  window.addEventListener('pageshow',()=>{if(disposed){disposed=false;resizeObserver.observe(canvas);animationFrame=requestAnimationFrame(frame);}});
+  window.addEventListener('resize',resize);const resizeObserver=new ResizeObserver(resize);resizeObserver.observe(canvas);
+
+  async function initialize(init,generation) {
+    if(!init||!['practice','challenge'].includes(init.mode))throw new Error('游戏模式无效。');
+    restoring=true;locked=true;activePointer=null;E.pause(game);previousTime=0;
+    try {
+      if(init.mode==='challenge') {
+        if(typeof init.seed!=='string'||!init.state||!Array.isArray(init.drops))throw new Error('这局需要重新恢复。');
+        let snapshot=init.state;const drops=init.drops.slice();const target=init.to_tick;
+        const segmentLimit=Math.min(E.MAX_SEGMENT_TICKS,init.limits?.max_segment_ticks||E.MAX_SEGMENT_TICKS);
+        const dropLimit=Math.min(E.MAX_DROPS,init.limits?.max_drops||E.MAX_DROPS);
+        if(!Number.isSafeInteger(target)||target<snapshot.tick||target-snapshot.tick>72000||drops.length>512)throw new Error('本局进度需要重新加载。');
+        // Bounded engine replay also bounds restoration work. Yield between
+        // segments so a recovered pile never blocks the page indefinitely.
+        while(snapshot.tick<target||drops.length) {
+          let end=Math.min(target,snapshot.tick+segmentLimit);let count=drops.findIndex(event=>event.tick>end);if(count<0)count=drops.length;
+          if(count>dropLimit){count=dropLimit;end=drops[count-1].tick;}
+          snapshot=E.replay(init.seed,snapshot,end,drops.splice(0,count));
+          if(snapshot.tick<target||drops.length)await new Promise(resolve=>setTimeout(resolve,0));
+          if(generation!==restoreGeneration)return;
+        }
+        game=E.restore(init.seed,snapshot,{best:Math.max(lastBest,best)});
+        if(init.paused!==false)E.pause(game);
+      } else {
+        game=E.createGame({best:Math.max(lastBest,best)});
+        if(!init.ready){E.start(game);if(init.paused)E.pause(game);}
+      }
+      mode=init.mode;completed=false;locked=!!init.locked;particles.length=0;popups.length=0;lastPhase='';lastScore=-1;lastNext=-1;lastReportTick=-1;
+    } finally { if(generation===restoreGeneration)restoring=false; }
+    syncUI();report();
+  }
+  window.addEventListener('message',async event=>{
+    const message=event.data;
+    if(!embedded||event.source!==window.parent||event.origin!==window.location.origin||!message||message.protocol!=='melon-melt'||message.version!==1||message.channel!==channel)return;
+    if(message.type==='ping'){post('ready');return;}
+    if(restoring&&message.type!=='init')return;
+    if(message.type!=='init'&&(message.session_id!==sessionId||message.run_id!==runId))return;
+    if(message.type==='init'){
+      if(typeof message.run_id!=='string'||!(message.session_id===null||typeof message.session_id==='string')||message.init?.session_id!==message.session_id)return;
+      sessionId=message.session_id;runId=message.run_id;
+    }
+    const generation=message.type==='init'?++restoreGeneration:restoreGeneration;
+    try {
+      if(message.type==='init')await initialize(message.init,generation);
+      else if(message.type==='capture'){E.pause(game);locked=!!message.lock;activePointer=null;previousTime=0;syncUI();report();}
+      else if(message.type==='resume'){if(!locked&&!restoring){E.resume(game);previousTime=0;syncUI();report();canvas.focus({preventScroll:true});}}
+      else if(message.type==='begin')begin();
+      else if(message.type==='complete'){E.pause(game);locked=true;completed=true;activePointer=null;syncUI();report();}
+      else return;
+      if(generation!==restoreGeneration)return;
+      if(message.request_id)post('ack',{request_id:message.request_id,ok:true,progress:progress()});
+    } catch(error) {
+      if(generation!==restoreGeneration)return;
+      locked=true;E.pause(game);syncUI();
+      post('ack',{request_id:message.request_id,ok:false,error:error instanceof Error?error.message:'恢复失败，请重试。'});
+    }
+  });
+  function frame(time){if(disposed)return;const dt=previousTime?Math.min(.067,(time-previousTime)/1000):0;previousTime=time;if(!locked&&!restoring)E.step(game,dt);consumeEvents();syncUI();if(game.tickCount-lastReportTick>=120)report();if(dirty||game.phase==='playing'){render(game.phase==='playing'?dt:0);dirty=false;}animationFrame=requestAnimationFrame(frame);}
+  resize();syncUI();animationFrame=requestAnimationFrame(frame);post('ready');
+})();
+</script>
+</body>
+</html>

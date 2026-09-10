@@ -22,3 +22,40 @@ declare module '@game2048-fixtures' {
   const fixtures: Game2048Fixture[]
   export default fixtures
 }
+
+// The production browser engine and native Go replay assert identical integer
+// particle snapshots from this one fixture file; never copy it into web/.
+declare module '@gamewatermelon-fixtures' {
+  export interface ParticleSnapshot {
+    version: 'watermelon-v1'
+    tick: number
+    drops: number
+    score: number
+    highest: number
+    next_id: number
+    cooldown_ticks: number
+    overflow_ticks: number
+    phase: 'playing' | 'over'
+    bodies: {
+      id: number
+      level: number
+      age_ticks: number
+      touched: boolean
+      nodes: [number, number, number, number][]
+    }[]
+  }
+  export interface WatermelonDrop { tick: number; x: number }
+  export interface WatermelonFixture {
+    name: string
+    seed: string
+    initial_state?: ParticleSnapshot
+    segments: { to_tick: number; drops: WatermelonDrop[]; expected: ParticleSnapshot }[]
+  }
+  const data: { version: string; fixtures: WatermelonFixture[] }
+  export default data
+}
+
+declare module '@gamewatermelon-spawn-vectors' {
+  const vectors: { seed: string; start_index: number; levels: number[] }[]
+  export default vectors
+}

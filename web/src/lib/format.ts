@@ -4,7 +4,10 @@ export function quotaToUSD(quota: number, perUnit = 500000): number {
 }
 
 export function formatUSD(quota: number, perUnit = 500000): string {
-  return '$' + quotaToUSD(quota, perUnit).toFixed(2)
+  // API 额度可以小于一美分；预算截断后的正奖励也不能被显示成 $0.00。
+  // 常规金额至少保留两位，额外小数保留到 quota 换算所需的精度。
+  const precision = Math.min(20, Math.max(6, Math.ceil(Math.log10(perUnit > 0 ? perUnit : 500000))))
+  return '$' + quotaToUSD(quota, perUnit).toFixed(precision).replace(/(\.\d{2}\d*?)0+$/, '$1')
 }
 
 /** 美元 → quota 整数。后端契约只收整数,这里统一四舍五入兜底。 */

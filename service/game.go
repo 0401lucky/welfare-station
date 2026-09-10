@@ -12,6 +12,7 @@ import (
 
 	"welfare/model"
 	"welfare/service/game2048"
+	"welfare/service/gamewatermelon"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -100,13 +101,13 @@ func NewGameService(db *gorm.DB, grants *GrantService) *GameService {
 // IsSupportedGame 判断游戏类型是否有对应的引擎实现。配置的 games 字典里可以出现
 // 别的键,但只有这里列出的游戏能开局(路由 :game 的白名单校验也用它)。
 func IsSupportedGame(gameType string) bool {
-	return gameType == game2048.GameType2048
+	return gameType == game2048.GameType2048 || gameType == gamewatermelon.GameType
 }
 
 // SupportedGames 列出所有有引擎实现的游戏,供 GET /api/games 遍历。
 // 加第二个游戏时,这里和 IsSupportedGame 一起改。
 func SupportedGames() []string {
-	return []string{game2048.GameType2048}
+	return []string{game2048.GameType2048, gamewatermelon.GameType}
 }
 
 // ---- 对外结果结构 ----
@@ -119,6 +120,39 @@ type StartResult struct {
 	BaseScore   int64         `json:"base_score"`
 	BaseMoves   int           `json:"base_moves"`
 	ExpiresAt   time.Time     `json:"expires_at"`
+	WatermelonState
+}
+
+// WatermelonState is additive metadata; the legacy 2048 response is unchanged.
+// BaseTick is a pointer so tick zero is present for watermelon and omitted for 2048.
+type WatermelonState struct {
+	EngineVersion string                   `json:"engine_version,omitempty"`
+	TickRate      int                      `json:"tick_rate,omitempty"`
+	Limits        *gamewatermelon.Limits   `json:"limits,omitempty"`
+	BaseTick      *int                     `json:"base_tick,omitempty"`
+	State         *gamewatermelon.Snapshot `json:"state,omitempty"`
+}
+
+func watermelonState(cp gamewatermelon.Snapshot) WatermelonState {
+	return WatermelonState{EngineVersion: gamewatermelon.Version, TickRate: gamewatermelon.TickRate,
+		Limits: gamewatermelon.RequestLimits(), BaseTick: &cp.Tick, State: &cp}
+}
+
+type WatermelonSegment struct {
+	SessionID string                `json:"session_id"`
+	BaseTick  int                   `json:"base_tick"`
+	BaseMoves int                   `json:"base_moves"`
+	ToTick    int                   `json:"to_tick"`
+	Drops     []gamewatermelon.Drop `json:"drops"`
+}
+
+type WatermelonCheckpointResult struct {
+	WatermelonState
+	BaseMoves      int       `json:"base_moves"`
+	Score          int64     `json:"score"`
+	MovesApplied   int       `json:"moves_applied"`
+	MovesSubmitted int       `json:"moves_submitted"`
+	ExpiresAt      time.Time `json:"expires_at"`
 }
 
 // CheckpointResult 对应 POST /checkpoint 的响应体。
@@ -152,23 +186,27 @@ type ActiveSessionView struct {
 	BaseMoves int           `json:"base_moves"`
 	StartedAt time.Time     `json:"started_at"`
 	ExpiresAt time.Time     `json:"expires_at"`
+	WatermelonState
 }
 
 // GameStatusView 对应 GET /status 的响应体。
 type GameStatusView struct {
-	GameType          string             `json:"game_type"`
-	Enabled           bool               `json:"enabled"`
-	RewardType        string             `json:"reward_type"`
-	Tiers             []GameTier         `json:"tiers"`
-	ActiveSession     *ActiveSessionView `json:"active_session"`
-	TodayClaims       int                `json:"today_claims"`
-	DailyClaimLimit   int                `json:"daily_claim_limit"`
-	TodayQuota        int64              `json:"today_quota"`
-	UserDailyCap      int64              `json:"user_daily_cap"`
-	CooldownSeconds   int                `json:"cooldown_seconds"`
-	CooldownRemaining int                `json:"cooldown_remaining"`
-	BudgetExhausted   bool               `json:"budget_exhausted"`
-	RecentPlays       []model.GamePlay   `json:"recent_plays"`
+	GameType          string                 `json:"game_type"`
+	Enabled           bool                   `json:"enabled"`
+	RewardType        string                 `json:"reward_type"`
+	Tiers             []GameTier             `json:"tiers"`
+	ActiveSession     *ActiveSessionView     `json:"active_session"`
+	TodayClaims       int                    `json:"today_claims"`
+	DailyClaimLimit   int                    `json:"daily_claim_limit"`
+	TodayQuota        int64                  `json:"today_quota"`
+	UserDailyCap      int64                  `json:"user_daily_cap"`
+	CooldownSeconds   int                    `json:"cooldown_seconds"`
+	CooldownRemaining int                    `json:"cooldown_remaining"`
+	BudgetExhausted   bool                   `json:"budget_exhausted"`
+	RecentPlays       []model.GamePlay       `json:"recent_plays"`
+	EngineVersion     string                 `json:"engine_version,omitempty"`
+	TickRate          int                    `json:"tick_rate,omitempty"`
+	Limits            *gamewatermelon.Limits `json:"limits,omitempty"`
 }
 
 // ---- 开局 ----
@@ -237,14 +275,19 @@ func (s *GameService) Start(user *model.User, gameType string) (*StartResult, er
 		return nil, err
 	}
 
-	return &StartResult{
-		SessionID:   session.ID,
-		Seed:        session.Seed,
-		InitialGrid: game2048.CreateInitialGrid(session.Seed),
-		BaseScore:   0,
-		BaseMoves:   0,
-		ExpiresAt:   session.ExpiresAt,
-	}, nil
+	result := &StartResult{
+		SessionID: session.ID,
+		Seed:      session.Seed,
+		BaseScore: 0,
+		BaseMoves: 0,
+		ExpiresAt: session.ExpiresAt,
+	}
+	if gameType == gamewatermelon.GameType {
+		result.WatermelonState = watermelonState(gamewatermelon.Initial(seed))
+	} else {
+		result.InitialGrid = game2048.CreateInitialGrid(seed)
+	}
+	return result, nil
 }
 
 // ---- 中途存档 ----
@@ -252,7 +295,7 @@ func (s *GameService) Start(user *model.User, gameType string) (*StartResult, er
 // Checkpoint 把已提交的 moves 折叠成棋盘快照存回会话并续期,前端据此清空本地
 // moves 数组(design.md §7.2)。不结算、不写 GamePlay、不扣预算、不发额度。
 func (s *GameService) Checkpoint(user *model.User, gameType, sessionID string, baseMoves int, moves []game2048.Direction) (*CheckpointResult, error) {
-	if !IsSupportedGame(gameType) {
+	if gameType != game2048.GameType2048 {
 		return nil, ErrGameNotSupported
 	}
 	normalized, err := normalizeGameMoves(moves)
@@ -304,12 +347,106 @@ func (s *GameService) Checkpoint(user *model.User, gameType, sessionID string, b
 	return &out, nil
 }
 
+// CheckpointWatermelon validates only input timing/positions and saves compact
+// authoritative particles. Expensive simulation holds the session lock only;
+// no user or shared-budget row is locked until a settlement computes its award.
+func (s *GameService) CheckpointWatermelon(user *model.User, req WatermelonSegment) (*WatermelonCheckpointResult, error) {
+	if err := validateWatermelonUser(user); err != nil {
+		return nil, err
+	}
+	if err := validateWatermelonRequest(req); err != nil {
+		return nil, err
+	}
+	_, rules, err := s.loadRules(gamewatermelon.GameType)
+	if err != nil {
+		return nil, err
+	}
+	if !rules.Enabled {
+		return nil, ErrGameDisabled
+	}
+	now := time.Now()
+	var out WatermelonCheckpointResult
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		session, err := lockGameSession(tx, req.SessionID, gamewatermelon.GameType, user.ID, now)
+		if err != nil {
+			return err
+		}
+		final, err := replayWatermelon(session, req, now)
+		if err != nil {
+			return err
+		}
+		payload, err := gamewatermelon.Encode(final)
+		if err != nil {
+			return err
+		}
+		expires := now.Add(gameSessionTTL)
+		if err := tx.Model(&model.GameSession{}).Where("id = ?", session.ID).
+			Updates(map[string]any{"payload": payload, "expires_at": expires, "updated_at": now}).Error; err != nil {
+			return err
+		}
+		out = WatermelonCheckpointResult{WatermelonState: watermelonState(final), BaseMoves: final.Drops,
+			Score: final.Score, MovesApplied: final.Drops, MovesSubmitted: final.Drops, ExpiresAt: expires}
+		return nil
+	})
+	if errors.Is(err, errGameSessionGone) {
+		return nil, ErrGameSessionGone
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func validateWatermelonUser(user *model.User) error {
+	if user.Status != 1 {
+		return ErrGameAccountBanned
+	}
+	if user.NewapiUserID == nil {
+		return ErrNotBound
+	}
+	return nil
+}
+func validateWatermelonSessionID(sessionID string) error {
+	if len(sessionID) != 32 {
+		return gamewatermelon.ErrInvalidInput
+	}
+	if _, err := hex.DecodeString(sessionID); err != nil {
+		return gamewatermelon.ErrInvalidInput
+	}
+	return nil
+}
+func validateWatermelonRequest(req WatermelonSegment) error {
+	if err := validateWatermelonSessionID(req.SessionID); err != nil {
+		return err
+	}
+	return gamewatermelon.ValidateSegment(req.BaseTick, req.BaseMoves, req.ToTick, req.Drops)
+}
+func replayWatermelon(session *model.GameSession, req WatermelonSegment, now time.Time) (gamewatermelon.Snapshot, error) {
+	cp, err := gamewatermelon.Decode(session.Seed, session.Payload)
+	if err != nil {
+		return gamewatermelon.Snapshot{}, err
+	}
+	if req.BaseTick != cp.Tick || req.BaseMoves != cp.Drops {
+		return gamewatermelon.Snapshot{}, ErrGameCheckpointMismatch
+	}
+	// Small clock/transport tolerance, not a per-checkpoint bonus. Pausing never
+	// penalizes players; sending a whole future round instantaneously is rejected.
+	allowedTicks := int64(now.Sub(session.StartedAt).Seconds()*gamewatermelon.TickRate) + 2*gamewatermelon.TickRate
+	if int64(req.ToTick) > allowedTicks {
+		return gamewatermelon.Snapshot{}, fmt.Errorf("%w: 游戏进度超过实际游玩时间", gamewatermelon.ErrInvalidInput)
+	}
+	return gamewatermelon.Replay(session.Seed, cp, req.ToTick, req.Drops)
+}
+
 // ---- 结算 ----
 
 // Settle 结算一局(design.md §5 + §7.3)。顺序与既有 DoCheckin 完全一致:
 // 事务内写业务记录 + pending 流水,提交后才外呼 new-api。宁可「记录成功但额度暂未到」
 // (可重试补发),绝不「额度到了但本地无记录」(会双发)。
 func (s *GameService) Settle(user *model.User, gameType, sessionID string, baseMoves int, moves []game2048.Direction) (*SettleResult, error) {
+	if gameType != game2048.GameType2048 {
+		return nil, ErrGameNotSupported
+	}
 	cfg, rules, err := s.loadRules(gameType)
 	if err != nil {
 		return nil, err
@@ -324,10 +461,49 @@ func (s *GameService) Settle(user *model.User, gameType, sessionID string, baseM
 		return nil, ErrNotBound
 	}
 
-	res, err := s.settleOnce(cfg, rules, user, gameType, sessionID, baseMoves, normalized)
+	return s.settleReplayed(cfg, rules, user, gameType, sessionID, func(session *model.GameSession) (replayedGame, error) {
+		cp := getCheckpoint(session)
+		if err := ensureBaseMoves(cp, baseMoves); err != nil {
+			return replayedGame{}, err
+		}
+		final := simulateSegment(session.Seed, cp, normalized)
+		return replayedGame{Score: final.Score, HighestTile: game2048.HighestTile(final.Grid), Moves: final.MovesApplied}, nil
+	})
+}
+
+func (s *GameService) SettleWatermelon(user *model.User, req WatermelonSegment) (*SettleResult, error) {
+	if err := validateWatermelonUser(user); err != nil {
+		return nil, err
+	}
+	if err := validateWatermelonRequest(req); err != nil {
+		return nil, err
+	}
+	cfg, rules, err := s.loadRules(gamewatermelon.GameType)
+	if err != nil {
+		return nil, err
+	}
+	return s.settleReplayed(cfg, rules, user, gamewatermelon.GameType, req.SessionID, func(session *model.GameSession) (replayedGame, error) {
+		final, err := replayWatermelon(session, req, time.Now())
+		if err != nil {
+			return replayedGame{}, err
+		}
+		return replayedGame{Score: final.Score, HighestTile: final.HighestTile(), Moves: final.Drops}, nil
+	})
+}
+
+type replayedGame struct {
+	Score              int64
+	HighestTile, Moves int
+}
+type gameReplay func(*model.GameSession) (replayedGame, error)
+
+// Both engines share exactly one record/budget/ledger transaction and one
+// post-commit delivery path; game-specific code supplies only trusted metrics.
+func (s *GameService) settleReplayed(cfg *GameConfig, rules GameRules, user *model.User, gameType, sessionID string, replay gameReplay) (*SettleResult, error) {
+	res, err := s.settleOnce(cfg, rules, user, gameType, sessionID, replay)
 	if errors.Is(err, errGameSessionGone) || errors.Is(err, errGamePlayDuplicated) {
 		// 会话没了或被 uk_session 拦下:这局要么已经结算过,要么根本不存在。
-		return s.replaySettled(sessionID, user.ID, rules)
+		return s.replaySettled(sessionID, user.ID, gameType, rules)
 	}
 	if err != nil {
 		return nil, err
@@ -346,7 +522,7 @@ func (s *GameService) Settle(user *model.User, gameType, sessionID string, baseM
 // settleOnce 在一个事务里跑完一次结算尝试。个人上限与两个站点预算池都按
 // 实际剩余额度截断，事务内持有必要的行锁以保证并发结算不会超发。
 func (s *GameService) settleOnce(cfg *GameConfig, rules GameRules, user *model.User,
-	gameType, sessionID string, baseMoves int, moves []game2048.Direction,
+	gameType, sessionID string, replay gameReplay,
 ) (*SettleResult, error) {
 	now := time.Now()
 	today := TodayStr(cfg.Timezone, now)
@@ -361,15 +537,11 @@ func (s *GameService) settleOnce(cfg *GameConfig, rules GameRules, user *model.U
 		if err != nil {
 			return err
 		}
-		cp := getCheckpoint(session)
-		// 令牌校验放在回放之前:对不上就整个事务什么都不做,会话与存档保持原样,
-		// 更不会写 GamePlay 或进冷却。
-		if err := ensureBaseMoves(cp, baseMoves); err != nil {
+		final, err := replay(session)
+		if err != nil {
 			return err
 		}
-
-		final := simulateSegment(session.Seed, cp, moves)
-		highest := game2048.HighestTile(final.Grid)
+		highest := final.HighestTile
 
 		reward, reason, hit, err := computeGameReward(tx, cfg, rules, user.ID, gameType, today, highest)
 		if err != nil {
@@ -384,7 +556,7 @@ func (s *GameService) settleOnce(cfg *GameConfig, rules GameRules, user *model.U
 			PlayDate:    today,
 			Score:       final.Score,
 			HighestTile: highest,
-			Moves:       final.MovesApplied,
+			Moves:       final.Moves,
 			Quota:       reward,
 			QuotaType:   NormalizeQuotaType(rules.RewardType),
 			Reason:      reason,
@@ -491,9 +663,9 @@ func computeGameReward(tx *gorm.DB, cfg *GameConfig, rules GameRules, userID int
 // replaySettled 返回该 session 首次结算的结果(AC3)。uk_session 保证同一 session
 // 至多一条 w_game_plays,因此这里不需要额外去重,也**不重新外呼**:首次结算已经
 // 把流水写进 w_grants,失败的那笔归自动重试器管。
-func (s *GameService) replaySettled(sessionID string, userID int64, rules GameRules) (*SettleResult, error) {
+func (s *GameService) replaySettled(sessionID string, userID int64, gameType string, rules GameRules) (*SettleResult, error) {
 	var play model.GamePlay
-	err := s.db.Where("session_id = ?", sessionID).First(&play).Error
+	err := s.db.Where("session_id = ? AND user_id = ? AND game_type = ?", sessionID, userID, gameType).First(&play).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrGameSessionGone
 	}
@@ -538,6 +710,17 @@ func (s *GameService) Cancel(user *model.User, gameType string) error {
 		Delete(&model.GameSession{}).Error
 }
 
+// CancelWatermelon only removes the explicitly named session. A delayed cancel
+// from another tab must not discard a newer round. Missing/settled sessions are
+// idempotent, and canceled or corrupt/expired sessions never create a payout.
+func (s *GameService) CancelWatermelon(user *model.User, sessionID string) error {
+	if err := validateWatermelonSessionID(sessionID); err != nil {
+		return err
+	}
+	return s.db.Where("id = ? AND user_id = ? AND game_type = ?", sessionID, user.ID, gamewatermelon.GameType).
+		Delete(&model.GameSession{}).Error
+}
+
 // Status 汇总断线恢复与侧栏展示所需的一切(design.md §7.4)。
 func (s *GameService) Status(user *model.User, gameType string) (*GameStatusView, error) {
 	cfg, rules, err := s.loadRules(gameType)
@@ -557,20 +740,35 @@ func (s *GameService) Status(user *model.User, gameType string) (*GameStatusView
 		CooldownSeconds: rules.CooldownSeconds,
 		RecentPlays:     []model.GamePlay{},
 	}
+	if gameType == gamewatermelon.GameType {
+		view.EngineVersion = gamewatermelon.Version
+		view.TickRate = gamewatermelon.TickRate
+		view.Limits = gamewatermelon.RequestLimits()
+	}
 
 	var session model.GameSession
 	err = s.db.Where("user_id = ? AND game_type = ? AND expires_at > ?", user.ID, gameType, now).
 		First(&session).Error
 	if err == nil {
-		cp := getCheckpoint(&session)
 		view.ActiveSession = &ActiveSessionView{
 			SessionID: session.ID,
 			Seed:      session.Seed,
-			Grid:      cp.Grid,
-			BaseScore: cp.Score,
-			BaseMoves: cp.MovesApplied,
 			StartedAt: session.StartedAt,
 			ExpiresAt: session.ExpiresAt,
+		}
+		if gameType == gamewatermelon.GameType {
+			cp, err := gamewatermelon.Decode(session.Seed, session.Payload)
+			if err != nil {
+				return nil, err
+			}
+			view.ActiveSession.WatermelonState = watermelonState(cp)
+			view.ActiveSession.BaseScore = cp.Score
+			view.ActiveSession.BaseMoves = cp.Drops
+		} else {
+			cp := getCheckpoint(&session)
+			view.ActiveSession.Grid = cp.Grid
+			view.ActiveSession.BaseScore = cp.Score
+			view.ActiveSession.BaseMoves = cp.MovesApplied
 		}
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
@@ -655,6 +853,11 @@ func budgetExhausted(db *gorm.DB, cfg *GameConfig, today string) (bool, error) {
 		rule := cfg.Budgets[scope]
 		if !rule.Enabled {
 			continue
+		}
+		// A zero allowance is already exhausted before the first daily usage row
+		// exists. Keep the eligibility view consistent with actual settlement.
+		if rule.Daily <= 0 {
+			return true, nil
 		}
 		var row model.DailyBudget
 		err := db.Where("date = ? AND scope = ?", today, scope).First(&row).Error

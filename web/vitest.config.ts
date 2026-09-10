@@ -10,6 +10,8 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, 'src'),
       '@game2048-fixtures': fixturesPath,
+      '@gamewatermelon-fixtures': path.resolve(__dirname, '../service/gamewatermelon/testdata/fixtures.json'),
+      '@gamewatermelon-spawn-vectors': path.resolve(__dirname, '../service/gamewatermelon/testdata/spawn-vectors.json'),
     },
   },
   server: {

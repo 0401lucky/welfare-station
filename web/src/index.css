@@ -28,6 +28,13 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .stagger > *, .animate-sway, .animate-float-leaf, .animate-spin-slow, .animate-pulse-dot {
+    animation: none !important;
+  }
+}
+
 @layer utilities {
   /* 玻璃顶栏 / 玻璃卡 */
   .glass {

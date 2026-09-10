@@ -185,12 +185,23 @@ const defaultGameTimezone = "Asia/Shanghai"
 // gameType2048 与 game2048.GameType2048 取值一致;这里只是配置表的键,
 // 不引入引擎包依赖。
 const gameType2048 = "2048"
+const gameTypeWatermelon = "watermelon"
+
+// DefaultWatermelonRules are used for fresh installations. Existing saved
+// configurations get these editable values with Enabled=false until reviewed.
+func DefaultWatermelonRules() GameRules {
+	return GameRules{Enabled: true, RewardType: QuotaTypePermanent, DailyClaimLimit: 3,
+		UserDailyCap: 150000, CooldownSeconds: 60, Tiers: []GameTier{
+			{Tile: 64, Quota: 10000}, {Tile: 128, Quota: 25000}, {Tile: 256, Quota: 50000}, {Tile: 512, Quota: 100000},
+		}}
+}
 
 // DefaultGameConfig returns the schema with design.md §4 default values.
 func DefaultGameConfig() *GameConfig {
 	return &GameConfig{
 		Timezone: defaultGameTimezone,
 		Games: map[string]GameRules{
+			gameTypeWatermelon: DefaultWatermelonRules(),
 			gameType2048: {
 				Enabled:         true,
 				RewardType:      QuotaTypePermanent,
@@ -238,6 +249,11 @@ func GetGameConfig(db *gorm.DB) (*GameConfig, error) {
 	// 该池未开启」解释即可,这里只保证读写不 panic。
 	if c.Games == nil {
 		c.Games = map[string]GameRules{}
+	}
+	if _, ok := c.Games[gameTypeWatermelon]; !ok {
+		rules := DefaultWatermelonRules()
+		rules.Enabled = false
+		c.Games[gameTypeWatermelon] = rules
 	}
 	if c.Budgets == nil {
 		c.Budgets = map[string]BudgetRule{}
@@ -294,6 +310,9 @@ func SaveGameConfig(db *gorm.DB, c *GameConfig, maxGrantQuota int64) error {
 		for _, t := range r.Tiers {
 			if !isPowerOfTwoTile(t.Tile) {
 				return fmt.Errorf("游戏 %s 的奖励档位 tile=%d 必须是 2 的幂且不小于 2", name, t.Tile)
+			}
+			if name == gameTypeWatermelon && (t.Tile < 4 || t.Tile > 512) {
+				return fmt.Errorf("游戏 %s 的奖励档位 tile=%d 必须对应可合成水果（4~512）", name, t.Tile)
 			}
 			if t.Quota < 0 {
 				return fmt.Errorf("游戏 %s 的奖励档位 tile=%d 的 quota 不能为负", name, t.Tile)

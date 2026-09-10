@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Flag, Gamepad2, LogIn, Sparkles, Timer, Trophy } from 'lucide-react'
+import { ArrowLeft, Flag, Gamepad2, LogIn, Sparkles, Timer, Trophy } from 'lucide-react'
 import Header from '@/components/Header'
 import Quota from '@/components/Quota'
 import { Badge, Button, Card, ConfirmDialog, Progress, Spinner } from '@/components/ui'
@@ -654,6 +654,7 @@ export default function GamePage() {
       <Header />
       {rainSeed > 0 && <CloverRain seed={rainSeed} />}
       <main className="relative z-10 mx-auto max-w-6xl px-4 pb-16">
+        <Link to="/game" className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-lg px-1 text-xs text-clover-700 hover:text-clover-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500"><ArrowLeft size={15} /> 返回小游戏花园</Link>
         <section className="stagger relative flex flex-col items-center pb-8 pt-8 text-center">
           <span
             className="pointer-events-none absolute right-2 top-10 hidden animate-float-leaf lg:block"

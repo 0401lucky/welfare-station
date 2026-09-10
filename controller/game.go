@@ -1,7 +1,10 @@
 package controller
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 
 	"welfare/common"
@@ -9,6 +12,7 @@ import (
 	"welfare/model"
 	"welfare/service"
 	"welfare/service/game2048"
+	"welfare/service/gamewatermelon"
 
 	"github.com/gin-gonic/gin"
 )
@@ -21,6 +25,58 @@ type gameMovesReq struct {
 	SessionID string               `json:"session_id"`
 	BaseMoves int                  `json:"base_moves"`
 	Moves     []game2048.Direction `json:"moves"`
+}
+
+// Bound the entire request (including ignored whitespace), reject unknown
+// fields and permit exactly one JSON value for every watermelon mutation.
+func bindWatermelonBody(c *gin.Context, body any) bool {
+	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, gamewatermelon.MaxRequestBytes+1))
+	if err != nil || len(raw) > gamewatermelon.MaxRequestBytes {
+		common.Fail(c, http.StatusBadRequest, "西瓜请求过大或无法读取")
+		return false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(body); err != nil {
+		common.Fail(c, http.StatusBadRequest, "西瓜请求参数错误")
+		return false
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		common.Fail(c, http.StatusBadRequest, "西瓜请求参数错误")
+		return false
+	}
+	return true
+}
+
+// Require explicit integer tokens and never decode a client snapshot.
+func bindWatermelonSegment(c *gin.Context) (service.WatermelonSegment, bool) {
+	var req service.WatermelonSegment
+	var body struct {
+		SessionID *string `json:"session_id"`
+		BaseTick  *int    `json:"base_tick"`
+		BaseMoves *int    `json:"base_moves"`
+		ToTick    *int    `json:"to_tick"`
+		Drops     *[]struct {
+			Tick *int `json:"tick"`
+			X    *int `json:"x"`
+		} `json:"drops"`
+	}
+	if !bindWatermelonBody(c, &body) {
+		return req, false
+	}
+	if body.SessionID == nil || body.BaseTick == nil || body.BaseMoves == nil || body.ToTick == nil || body.Drops == nil {
+		common.Fail(c, http.StatusBadRequest, "西瓜进度参数错误")
+		return req, false
+	}
+	req = service.WatermelonSegment{SessionID: *body.SessionID, BaseTick: *body.BaseTick, BaseMoves: *body.BaseMoves, ToTick: *body.ToTick, Drops: make([]gamewatermelon.Drop, 0, len(*body.Drops))}
+	for _, drop := range *body.Drops {
+		if drop.Tick == nil || drop.X == nil {
+			common.Fail(c, http.StatusBadRequest, "西瓜投放参数错误")
+			return req, false
+		}
+		req.Drops = append(req.Drops, gamewatermelon.Drop{Tick: *drop.Tick, X: *drop.X})
+	}
+	return req, true
 }
 
 // gameSvc 组装本次请求要用的 GameService。发放一律走既有 GrantService。
@@ -59,6 +115,8 @@ func failGame(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrGameNotSupported):
 		common.Fail(c, http.StatusNotFound, err.Error())
 	case errors.Is(err, service.ErrGameDisabled),
+		errors.Is(err, gamewatermelon.ErrInvalidInput),
+		errors.Is(err, gamewatermelon.ErrInvalidSnapshot),
 		errors.Is(err, service.ErrGameSessionExists),
 		errors.Is(err, service.ErrGameSessionGone),
 		errors.Is(err, service.ErrGameSessionExpired),
@@ -79,7 +137,7 @@ func (a *App) ListGames(c *gin.Context) {
 		return
 	}
 	svc := a.gameSvc()
-	out := make([]gin.H, 0, 1)
+	out := make([]gin.H, 0, len(service.SupportedGames()))
 	for _, gameType := range service.SupportedGames() {
 		st, err := svc.Status(user, gameType)
 		if err != nil {
@@ -144,6 +202,19 @@ func (a *App) GameCheckpoint(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if gameType == gamewatermelon.GameType {
+		req, ok := bindWatermelonSegment(c)
+		if !ok {
+			return
+		}
+		res, err := a.gameSvc().CheckpointWatermelon(user, req)
+		if err != nil {
+			failGame(c, err)
+			return
+		}
+		common.Ok(c, res)
+		return
+	}
 	var req gameMovesReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.Fail(c, http.StatusBadRequest, "参数错误")
@@ -163,12 +234,22 @@ func (a *App) GameSubmit(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var req gameMovesReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		common.Fail(c, http.StatusBadRequest, "参数错误")
-		return
+	var res *service.SettleResult
+	var err error
+	if gameType == gamewatermelon.GameType {
+		req, ok := bindWatermelonSegment(c)
+		if !ok {
+			return
+		}
+		res, err = a.gameSvc().SettleWatermelon(user, req)
+	} else {
+		var req gameMovesReq
+		if err := c.ShouldBindJSON(&req); err != nil {
+			common.Fail(c, http.StatusBadRequest, "参数错误")
+			return
+		}
+		res, err = a.gameSvc().Settle(user, gameType, req.SessionID, req.BaseMoves, req.Moves)
 	}
-	res, err := a.gameSvc().Settle(user, gameType, req.SessionID, req.BaseMoves, req.Moves)
 	if err != nil {
 		failGame(c, err)
 		return
@@ -199,7 +280,23 @@ func (a *App) GameCancel(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := a.gameSvc().Cancel(user, gameType); err != nil {
+	var err error
+	if gameType == gamewatermelon.GameType {
+		var body struct {
+			SessionID *string `json:"session_id"`
+		}
+		if !bindWatermelonBody(c, &body) {
+			return
+		}
+		if body.SessionID == nil {
+			common.Fail(c, http.StatusBadRequest, "请指定要放弃的游戏会话")
+			return
+		}
+		err = a.gameSvc().CancelWatermelon(user, *body.SessionID)
+	} else {
+		err = a.gameSvc().Cancel(user, gameType)
+	}
+	if err != nil {
 		failGame(c, err)
 		return
 	}

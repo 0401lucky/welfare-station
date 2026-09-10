@@ -18,11 +18,12 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(path, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     credentials: 'include',
+    signal,
     body: body ? JSON.stringify(body) : undefined,
   })
   let json: ApiEnvelope<T>
@@ -38,8 +39,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>('GET', path),
-  post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
+  get: <T>(path: string, options?: { signal?: AbortSignal }) => request<T>('GET', path, undefined, options?.signal),
+  post: <T>(path: string, body?: unknown, options?: { signal?: AbortSignal }) => request<T>('POST', path, body, options?.signal),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   del: <T>(path: string) => request<T>('DELETE', path),
 }
@@ -395,6 +396,75 @@ export interface GameSubmitResp {
   reason: GameReason
   grant_status: 'success' | 'failed' | 'none'
   tier_hit: GameTier | null
+}
+
+// Watermelon keeps its own replay protocol. Only input ticks and drop positions
+// cross the reward boundary; the browser never submits a score or quota.
+export interface WatermelonDrop {
+  tick: number
+  x: number
+}
+
+export interface WatermelonSnapshot {
+  version: 'watermelon-v1'
+  tick: number
+  drops: number
+  score: number
+  highest: number
+  next_id: number
+  cooldown_ticks: number
+  overflow_ticks: number
+  phase: 'playing' | 'over'
+  bodies: {
+    id: number
+    level: number
+    age_ticks: number
+    touched: boolean
+    nodes: [number, number, number, number][]
+  }[]
+}
+
+export interface WatermelonLimits {
+  max_segment_ticks: number
+  max_drops: number
+  max_bodies: number
+}
+
+export interface WatermelonCheckpointResp {
+  engine_version: 'watermelon-v1'
+  tick_rate: 120
+  limits: WatermelonLimits
+  base_tick: number
+  base_moves: number
+  state: WatermelonSnapshot
+  expires_at: string
+}
+
+export interface WatermelonActiveSession extends WatermelonCheckpointResp {
+  session_id: string
+  seed: string
+}
+
+export type WatermelonStartResp = WatermelonActiveSession
+
+export interface WatermelonStatus extends Omit<GameStatus, 'active_session'> {
+  game_type: 'watermelon'
+  enabled: boolean
+  reward_type: QuotaType
+  tiers: GameTier[]
+  cooldown_seconds: number
+  engine_version: 'watermelon-v1'
+  tick_rate: 120
+  limits: WatermelonLimits
+  active_session: WatermelonActiveSession | null
+}
+
+export interface WatermelonSegment {
+  session_id: string
+  base_tick: number
+  base_moves: number
+  to_tick: number
+  drops: WatermelonDrop[]
 }
 
 // ---- 每日幸运抽奖(draw_config / /api/draw)----

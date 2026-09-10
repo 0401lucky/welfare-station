@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
@@ -14,6 +14,7 @@ import { api, ActivityClaim, AdminActivity, BudgetRule, CheckinConfig, Dashboard
 import { useMe, useSiteInfo } from '@/hooks/useMe'
 import { formatDateTime, formatUSD, hhmmToMinutes, minutesToHHMM } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { WATERMELON_FRUITS, getWatermelonFruit } from '@/lib/watermelonFruits'
 
 type Tab = 'dashboard' | 'config' | 'game' | 'draw' | 'activities' | 'grants' | 'users' | 'manual'
 
@@ -46,14 +47,26 @@ function Loading() {
   )
 }
 
+function SettingsLoadError({ title, detail, retry }: { title: string; detail?: string; retry(): void }) {
+  return (
+    <Card className="p-6" role="alert">
+      <h3 className="font-bold text-clover-800">{title}</h3>
+      <p className="mt-2 text-sm text-muted-foreground">{detail || '请重新加载后再修改规则。'}</p>
+      <Button className="mt-4" variant="outline" onClick={retry}><RefreshCw size={15} /> 重新加载</Button>
+    </Card>
+  )
+}
+
 /** 换算系数统一取自 /api/site/info;站点信息未到位前用默认值兜底,到位后组件会自动重算。 */
 function usePerUnit() {
   const { data: site } = useSiteInfo()
   return site?.quota_per_unit ?? 500000
 }
 
-/** 目前只有 2048 一个游戏;加第二个游戏时这里扩成列表即可,其余结构不用动。 */
-const GAME_2048 = '2048'
+const ADMIN_GAMES = [
+  { id: 'watermelon', label: '软软西瓜', description: '按本局合成的最高水果发放额度' },
+  { id: '2048', label: '幸运 2048', description: '按本局合成的最高方块发放额度' },
+] as const
 
 /** 配置里缺 2048 这一项时的兜底(后端首次落库前/字段缺失时),避免表单读到 undefined。 */
 const DEFAULT_GAME_RULES: GameRules = {
@@ -91,7 +104,12 @@ interface BudgetsView {
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('dashboard')
+  const [gameVisited, setGameVisited] = useState(false)
   const { data: me, isLoading: meLoading } = useMe()
+  const selectTab = (next: Tab) => {
+    if (next === 'game') setGameVisited(true)
+    setTab(next)
+  }
 
   // 三态守卫:加载中不渲染后台骨架,未登录与非管理员各给一张提示卡
   if (meLoading) {
@@ -155,13 +173,14 @@ export default function AdminPage() {
         </div>
 
         {/* 移动端:横滑 tab 栏 */}
-        <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1 md:hidden">
+        <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1 md:hidden" role="navigation" aria-label="后台导航">
           {tabs.map((t) => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => selectTab(t.id)}
+              aria-pressed={tab === t.id}
               className={cn(
-                'flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs transition-colors',
+                'flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500',
                 tab === t.id
                   ? 'border-transparent bg-clover-gradient text-white shadow-leaf-sm'
                   : 'border-clover-100 bg-white/80 text-clover-700',
@@ -174,13 +193,14 @@ export default function AdminPage() {
 
         <div className="flex gap-5">
           <aside className="hidden w-52 shrink-0 md:block">
-            <nav className="card-leaf sticky top-20 space-y-1 p-2">
+            <nav className="card-leaf sticky top-20 space-y-1 p-2" aria-label="后台导航">
               {tabs.map((t) => (
                 <button
                   key={t.id}
-                  onClick={() => setTab(t.id)}
+                  onClick={() => selectTab(t.id)}
+                  aria-pressed={tab === t.id}
                   className={cn(
-                    'flex w-full items-center gap-2 rounded-2xl px-3 py-2.5 text-sm transition-colors',
+                    'flex min-h-11 w-full items-center gap-2 rounded-2xl px-3 py-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500',
                     tab === t.id
                       ? 'bg-clover-gradient font-medium text-white shadow-leaf-sm'
                       : 'text-clover-700/75 hover:bg-clover-50 hover:text-clover-800',
@@ -194,7 +214,9 @@ export default function AdminPage() {
           <section className="min-w-0 flex-1">
             {tab === 'dashboard' && <DashboardTab />}
             {tab === 'config' && <ConfigTab />}
-            {tab === 'game' && <GameTab />}
+            {/* Keep visited game settings mounted so switching admin sections
+                preserves edited reward and budget values. */}
+            {gameVisited && <div hidden={tab !== 'game'}><GameTab key={me.user.id} /></div>}
             {tab === 'draw' && <DrawTab />}
             {tab === 'activities' && <ActivitiesTab />}
             {tab === 'grants' && <GrantsTab />}
@@ -358,7 +380,7 @@ function DashboardTab() {
 function ConfigTab() {
   const qc = useQueryClient()
   const perUnit = usePerUnit()
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['admin-checkin-config'],
     queryFn: () => api.get<CheckinConfig>('/api/admin/checkin-config'),
   })
@@ -374,6 +396,7 @@ function ConfigTab() {
   const set = (patch: Partial<CheckinConfig>) => setCfg((p) => ({ ...(p ?? data)!, ...patch }))
 
   if (isLoading) return <Loading />
+  if (!localCfg) return <SettingsLoadError title="签到配置暂时无法加载" detail={error?.message} retry={() => void refetch()} />
 
   return (
     <div className="space-y-4">
@@ -488,17 +511,18 @@ function ConfigTab() {
 function GrantLimitCard() {
   const qc = useQueryClient()
   const perUnit = usePerUnit()
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['admin-grant-config'],
     queryFn: () => api.get<{ max_grant_quota: number }>('/api/admin/grant-config'),
   })
   const [draft, setDraft] = useState<number | null>(null)
 
   const save = useMutation({
-    mutationFn: (v: number) => api.put('/api/admin/grant-config', { max_grant_quota: v }),
-    onSuccess: () => {
+    mutationFn: (v: number) => api.put<{ max_grant_quota: number }>('/api/admin/grant-config', { max_grant_quota: v }),
+    onSuccess: (persisted, savedValue) => {
       toast.success('单次发放上限已保存')
-      setDraft(null)
+      qc.setQueryData(['admin-grant-config'], persisted)
+      setDraft(current => current === savedValue ? null : current)
       qc.invalidateQueries({ queryKey: ['admin-grant-config'] })
       // site/info 带着这个值给前端出提示,档位页的标红也依赖它。
       qc.invalidateQueries({ queryKey: ['site-info'] })
@@ -520,9 +544,14 @@ function GrantLimitCard() {
       </p>
       {isLoading ? (
         <Spinner size={20} />
+      ) : !data ? (
+        <div className="text-xs leading-6 text-muted-foreground" role="alert">
+          <p>{error?.message || '暂时无法读取单次发放上限，请重试后再修改。'}</p>
+          <Button size="sm" variant="outline" onClick={() => void refetch()}><RefreshCw size={13} /> 重新加载</Button>
+        </div>
       ) : (
         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-          <MoneyInput perUnit={perUnit} value={value} onChange={(q) => setDraft(q)} />
+          <MoneyInput aria-label="单次发放上限（美元）" perUnit={perUnit} value={value} onChange={(q) => setDraft(q)} />
           <Button
             variant={dirty ? 'gradient' : 'outline'}
             disabled={!dirty || save.isPending}
@@ -542,7 +571,7 @@ function GrantLimitCard() {
 function GameTab() {
   const qc = useQueryClient()
   const perUnit = usePerUnit()
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['admin-game-config'],
     queryFn: () => api.get<GameConfig>('/api/admin/game-config'),
   })
@@ -551,28 +580,48 @@ function GameTab() {
     queryFn: () => api.get<BudgetsView>('/api/admin/budgets?days=7'),
   })
   const [cfg, setCfg] = useState<GameConfig | null>(null)
+  const [selectedGame, setSelectedGame] = useState<(typeof ADMIN_GAMES)[number]['id']>('watermelon')
   const [deletingTier, setDeletingTier] = useState<number | null>(null)
+  const hasDraft = cfg !== null
+
+  useEffect(() => {
+    if (!hasDraft) return
+    const protectDraft = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', protectDraft)
+    return () => window.removeEventListener('beforeunload', protectDraft)
+  }, [hasDraft])
 
   const save = useMutation({
-    mutationFn: (c: GameConfig) => api.put('/api/admin/game-config', c),
-    onSuccess: () => {
+    mutationFn: (c: GameConfig) => api.put<GameConfig>('/api/admin/game-config', c),
+    onSuccess: (persisted, savedConfig) => {
       toast.success('游戏设置已保存')
+      // A new edit must use the successful save immediately, even if the
+      // following network refetch is slow.
+      qc.setQueryData(['admin-game-config'], persisted)
+      // 保存期间仍允许编辑；只清理已提交的那份草稿，不覆盖后续输入。
+      setCfg((current) => current === savedConfig ? null : current)
       qc.invalidateQueries({ queryKey: ['admin-game-config'] })
       qc.invalidateQueries({ queryKey: ['admin-budgets'] })
       // 前台游戏页的规则摘要也要跟着刷新
       qc.invalidateQueries({ queryKey: ['games'] })
+      qc.invalidateQueries({ queryKey: ['game-status', 'watermelon'] })
     },
     onError: (e: Error) => toast.error(e.message),
   })
 
   const localCfg = cfg ?? data
-  const rules = localCfg?.games?.[GAME_2048]
+  const rules = localCfg?.games?.[selectedGame]
+  const selected = ADMIN_GAMES.find((game) => game.id === selectedGame)!
+  const isWatermelon = selectedGame === 'watermelon'
+  const tierOptions = isWatermelon ? WATERMELON_FRUITS.filter((fruit) => fruit.tile >= 4).map((fruit) => fruit.tile) : TILE_OPTIONS
+  const tierValues = new Set((rules?.tiers ?? []).map((tier) => tier.tile))
+  const availableTiers = tierOptions.filter((tile) => !tierValues.has(tile))
 
   const setRules = (patch: Partial<GameRules>) =>
     setCfg((p) => {
       const base = (p ?? data)!
-      const prev = base.games?.[GAME_2048] ?? DEFAULT_GAME_RULES
-      return { ...base, games: { ...base.games, [GAME_2048]: { ...prev, ...patch } } }
+      const prev = base.games?.[selectedGame] ?? DEFAULT_GAME_RULES
+      return { ...base, games: { ...base.games, [selectedGame]: { ...prev, ...patch } } }
     })
 
   const setBudget = (scope: string, patch: Partial<BudgetRule>) =>
@@ -587,12 +636,14 @@ function GameTab() {
 
   const addTier = () => {
     const tiers = rules?.tiers ?? []
-    // 默认接在最高档之后翻一倍，站长通常就是想加下一档
-    const next = tiers.length ? Math.min(tiers[tiers.length - 1].tile * 2, 65536) : 512
+    const after = tiers.length ? Math.max(...tiers.map((tier) => tier.tile)) + 1 : isWatermelon ? 64 : 512
+    const next = availableTiers.find((tile) => tile >= after) ?? availableTiers[0]
+    if (next === undefined) return
     setRules({ tiers: [...tiers, { tile: next, quota: 0 }] })
   }
 
   if (isLoading) return <Loading />
+  if (!localCfg) return <SettingsLoadError title="游戏设置暂时无法加载" detail={error?.message} retry={() => void refetch()} />
 
   return (
     <div className="space-y-4">
@@ -601,19 +652,38 @@ function GameTab() {
       <GrantLimitCard />
 
       <Card className="space-y-4 p-5">
-        <h3 className="text-sm font-bold text-clover-800">2048</h3>
+        <div className="flex gap-2" role="group" aria-label="选择要配置的游戏">
+          {ADMIN_GAMES.map((game) => (
+            <button
+              key={game.id}
+              type="button"
+              aria-pressed={selectedGame === game.id}
+              onClick={() => { setSelectedGame(game.id); setDeletingTier(null) }}
+              className={cn('flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500', selectedGame === game.id ? 'border-clover-500 bg-clover-600 font-medium text-white' : 'border-clover-100 bg-white text-clover-700 hover:bg-clover-50')}
+            >
+              {game.id === 'watermelon' ? <img src="/assets/games/watermelon/fruits/watermelon.webp" alt="" className="h-7 w-7 object-contain" /> : <Gamepad2 size={18} />}
+              {game.label}
+            </button>
+          ))}
+        </div>
+        <div>
+          <h3 className="text-sm font-bold text-clover-800">{selected.label} · 奖励规则</h3>
+          <p className="mt-1 text-xs leading-6 text-muted-foreground">{selected.description}。开关、次数、个人上限分别配置；全站预算由两款游戏共用。</p>
+        </div>
 
         <label className="flex items-center justify-between rounded-2xl border border-clover-100 bg-clover-50/70 px-4 py-3">
           <span className="flex items-center gap-2 font-medium text-clover-800">
-            <Gamepad2 size={18} className="text-clover-500" /> 启用 2048
+            <Gamepad2 size={18} className="text-clover-500" /> 启用{selected.label}
           </span>
           <input
             type="checkbox"
             checked={!!rules?.enabled}
             onChange={(e) => setRules({ enabled: e.target.checked })}
             className="h-5 w-5 accent-clover-500"
+            aria-label={`启用${selected.label}`}
           />
         </label>
+        {isWatermelon && !rules?.enabled && <p className="text-xs leading-6 text-muted-foreground">当前可练习游玩。启用后，已绑定账号的用户可开启额度挑战；请同时检查下方的奖励档位和共享预算。</p>}
 
         <div>
           <label className="mb-1.5 block text-xs text-muted-foreground">奖励类型</label>
@@ -625,9 +695,10 @@ function GameTab() {
               <button
                 key={value}
                 type="button"
+                aria-pressed={(rules?.reward_type ?? 'permanent') === value}
                 onClick={() => setRules({ reward_type: value })}
                 className={cn(
-                  'rounded-full border px-4 py-1.5 text-sm transition-colors',
+                  'min-h-11 rounded-full border px-4 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500',
                   (rules?.reward_type ?? 'permanent') === value
                     ? 'border-transparent bg-clover-gradient text-white shadow-leaf-sm'
                     : 'border-clover-100 bg-white/80 text-clover-700 hover:bg-clover-50',
@@ -644,6 +715,9 @@ function GameTab() {
             <label className="mb-1 block text-xs text-muted-foreground">每日领奖次数</label>
             <Input
               type="number"
+              min={0}
+              step={1}
+              aria-label="每日领奖次数"
               value={String(rules?.daily_claim_limit ?? 0)}
               onChange={(e) => setRules({ daily_claim_limit: +e.target.value })}
             />
@@ -653,6 +727,7 @@ function GameTab() {
             <label className="mb-1 block text-xs text-muted-foreground">每人每日额度上限($)</label>
             <MoneyInput
               perUnit={perUnit}
+              aria-label="每人每日额度上限"
               value={rules?.user_daily_cap}
               onChange={(q) => setRules({ user_daily_cap: q })}
             />
@@ -661,6 +736,10 @@ function GameTab() {
             <label className="mb-1 block text-xs text-muted-foreground">结算后冷却(秒)</label>
             <Input
               type="number"
+              min={0}
+              max={3600}
+              step={1}
+              aria-label="结算后冷却秒数"
               value={String(rules?.cooldown_seconds ?? 0)}
               onChange={(e) => setRules({ cooldown_seconds: +e.target.value })}
             />
@@ -669,8 +748,8 @@ function GameTab() {
 
         <div>
           <div className="mb-1.5 flex items-center justify-between">
-            <label className="text-xs text-muted-foreground">奖励阶梯(按本局最高方块)</label>
-            <Button size="sm" variant="outline" onClick={addTier}>+ 加一档</Button>
+            <label className="text-xs text-muted-foreground">奖励阶梯(按本局最高{isWatermelon ? '合成水果' : '方块'})</label>
+            <Button size="sm" variant="outline" disabled={!availableTiers.length} onClick={addTier}>+ 加一档</Button>
           </div>
           <p className="mb-2 text-xs text-muted-foreground">
             同一局<span className="font-medium text-clover-700">只发命中的最高档</span>,不累加下面的档位。
@@ -678,12 +757,15 @@ function GameTab() {
           <div className="space-y-2">
             {(rules?.tiers ?? []).map((t, i) => (
               <div key={i} className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-center">
-                <Select value={String(t.tile)} onChange={(e) => setTier(i, { tile: +e.target.value })}>
-                  {TILE_OPTIONS.map((v) => (
-                    <option key={v} value={v}>合成 {v}</option>
-                  ))}
-                </Select>
-                <MoneyInput perUnit={perUnit} value={t.quota} onChange={(q) => setTier(i, { quota: q })} />
+                <div className="flex items-center gap-2">
+                  {isWatermelon && getWatermelonFruit(t.tile) && <img className="h-9 w-9 shrink-0 object-contain" src={getWatermelonFruit(t.tile)!.image} alt="" />}
+                  <Select aria-label={`第 ${i + 1} 档目标`} value={String(t.tile)} onChange={(e) => setTier(i, { tile: +e.target.value })}>
+                    {tierOptions.map((v) => (
+                      <option key={v} value={v} disabled={(rules?.tiers ?? []).some((tier, index) => index !== i && tier.tile === v)}>合成{isWatermelon ? getWatermelonFruit(v)?.name : ` ${v}`}</option>
+                    ))}
+                  </Select>
+                </div>
+                <MoneyInput aria-label={`第 ${i + 1} 档奖励额度`} perUnit={perUnit} value={t.quota} onChange={(q) => setTier(i, { quota: q })} />
                 <Button size="sm" variant="danger" onClick={() => setDeletingTier(i)}>
                   <Trash2 size={14} /> 删除
                 </Button>
@@ -697,17 +779,18 @@ function GameTab() {
           </div>
         </div>
 
-        <Button variant="gradient" disabled={!localCfg || save.isPending} onClick={() => localCfg && save.mutate(localCfg)}>
-          {save.isPending ? <Spinner size={18} /> : '保存设置'}
+        <Button variant="gradient" disabled={!hasDraft || save.isPending} onClick={() => save.mutate(localCfg)}>
+          {save.isPending ? <Spinner size={18} /> : '保存游戏与预算设置'}
         </Button>
       </Card>
 
       <Card className="space-y-4 p-5">
         <h3 className="text-sm font-bold text-clover-800">全站每日预算</h3>
         <p className="text-xs text-muted-foreground">
-          发放前先扣来源池、再扣总池,<span className="font-medium text-clover-700">两者都够才发</span>;
-          不足时整笔不发(不做部分发放),且游戏照常可玩。按上方时区跨日重置。
+          小游戏奖励受个人上限、来源池和总池共同约束,<span className="font-medium text-clover-700">额度不足时按剩余金额发放</span>；
+          任一适用上限耗尽后不再发放，练习仍可游玩。每日按配置时区 {localCfg.timezone} 重置。
         </p>
+        {budgets.isError && <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gold-300 bg-cream px-3 py-2 text-xs text-gold-600" role="alert"><span>预算用量暂时无法读取，当前配置仍可编辑。</span><Button variant="ghost" size="sm" onClick={() => void budgets.refetch()}><RefreshCw size={13} /> 重试用量</Button></div>}
         <div className="space-y-3">
           {BUDGET_SCOPES.map(({ scope, label, note, wired }) => {
             const rule = localCfg?.budgets?.[scope] ?? { enabled: false, daily: 0 }
@@ -720,7 +803,7 @@ function GameTab() {
                 'rounded-2xl border border-clover-100 px-4 py-3',
                 wired ? 'bg-clover-50/50' : 'bg-muted',
               )}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="flex min-h-11 flex-wrap items-center justify-between gap-2">
                   <span className={cn(
                     'flex min-w-0 items-center gap-2 font-medium',
                     wired ? 'text-clover-800' : 'text-muted-foreground',
@@ -730,27 +813,31 @@ function GameTab() {
                   </span>
                   <input
                     type="checkbox"
+                    aria-label={`启用${label}预算上限`}
                     checked={rule.enabled}
                     disabled={!wired}
                     onChange={(e) => setBudget(scope, { enabled: e.target.checked })}
                     className="h-5 w-5 shrink-0 accent-clover-500 disabled:cursor-not-allowed disabled:opacity-40"
                   />
-                </div>
+                </label>
                 {wired ? (
                   <div className="mt-2.5 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] sm:items-center">
                     <MoneyInput
+                      aria-label={`${label}每日预算（美元）`}
+                      placeholder="0"
                       perUnit={perUnit}
                       value={rule.daily}
                       onChange={(q) => setBudget(scope, { daily: q })}
                       disabled={!rule.enabled}
                     />
                     {rule.enabled ? (
-                      <div className="flex items-center gap-2">
-                        <Progress value={ratio} className="flex-1" />
-                        <span className="shrink-0 text-xs text-muted-foreground">
+                      !view ? <span className="text-xs text-muted-foreground">{budgets.isFetching ? '正在读取今日用量…' : '今日用量暂不可用'}</span> :
+                      <div className="min-w-0 space-y-1.5">
+                        <Progress value={ratio} />
+                        <p className="break-words text-xs leading-5 text-muted-foreground">
                           已用 {formatUSD(used, perUnit)} / {formatUSD(rule.daily, perUnit)} · 剩余{' '}
                           {formatUSD(Math.max(0, rule.daily - used), perUnit)}
-                        </span>
+                        </p>
                       </div>
                     ) : (
                       <span className="text-xs text-muted-foreground">未开启,该来源不受限额约束</span>
@@ -767,10 +854,17 @@ function GameTab() {
         </div>
       </Card>
 
+      <div className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-clover-200 bg-white/95 px-4 py-3 shadow-card backdrop-blur-sm">
+        <p className="text-xs leading-5 text-clover-700" role="status">{save.isPending ? '正在保存当前设置…' : hasDraft ? '有未保存的修改' : '游戏与预算设置已同步'}<span className="block text-[11px] text-muted-foreground">一次保存，两款游戏与共享预算一并生效</span></p>
+        <Button variant={hasDraft ? 'gradient' : 'outline'} className="min-h-11" disabled={!hasDraft || save.isPending} onClick={() => save.mutate(localCfg)}>
+          {save.isPending ? <Spinner size={16} /> : <CheckCircle2 size={16} />} 保存游戏与预算设置
+        </Button>
+      </div>
+
       <ConfirmDialog
         open={deletingTier !== null}
         title="删除这一档奖励?"
-        description="删除后本局达到该方块将按下一个更低的档位发放,或不发放。"
+        description={`删除后，达到该${isWatermelon ? '水果' : '方块'}的对局将按下一更低档位发放，或不发放。`}
         confirmText="删除"
         onCancel={() => setDeletingTier(null)}
         onConfirm={() => {
@@ -797,7 +891,7 @@ function DrawTab() {
   // 单次发放上限来自 MAX_GRANT_QUOTA 环境变量,后台改不了。填超了后端会拒绝保存,
   // 所以这里如实标出上限并就地标红,免得站长填完点保存才看到一句原始整数报错。
   const maxQuota = site?.max_grant_quota
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['admin-draw-config'],
     queryFn: () => api.get<DrawConfig>('/api/admin/draw-config'),
   })
@@ -852,6 +946,7 @@ function DrawTab() {
   const overLimitTiers = maxQuota == null ? [] : tiers.filter((t) => t.max_quota > maxQuota)
 
   if (isLoading) return <Loading />
+  if (!localCfg) return <SettingsLoadError title="抽奖配置暂时无法加载" detail={error?.message} retry={() => void refetch()} />
 
   return (
     <div className="space-y-4">

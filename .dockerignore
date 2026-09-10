@@ -7,5 +7,7 @@
 .pi
 web/node_modules
 web/dist
+output
+.playwright-mcp
 *.db
 .env

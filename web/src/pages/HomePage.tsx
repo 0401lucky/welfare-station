@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Gift, LogIn, Sparkles, Timer } from 'lucide-react'
+import { ArrowUpRight, Gamepad2, Gift, LogIn, Sparkles, Timer } from 'lucide-react'
 import Header from '@/components/Header'
+import ArcadeShowcase from '@/components/arcade/ArcadeCards'
 import Quota from '@/components/Quota'
 import { Button, Card, Badge, Progress, Spinner } from '@/components/ui'
 import { Clover, CloverEmblem, CloverRain } from '@/components/Clover'
@@ -353,12 +354,12 @@ function DrawOutcome({
 /* ---------- Hero:虚线环四叶草 + 书法标题 ---------- */
 function Hero({ me }: { me?: SelfInfo | null }) {
   return (
-    <section className="stagger flex flex-col items-center pb-10 pt-8 text-center">
+    <section className="stagger flex flex-col items-center pb-9 pt-7 text-center">
       <span className="flex items-center gap-2 rounded-full border border-clover-100 bg-white/80 px-4 py-1.5 text-sm text-clover-700 shadow-leaf-sm">
         <span className="h-2 w-2 animate-pulse-dot rounded-full bg-clover-500" />
         公益小站 · 今日好运营业中
       </span>
-      <CloverEmblem size={128} className="mt-6" />
+      <CloverEmblem size={104} className="mt-5" />
       <h1 className="title-kai mt-5 text-4xl leading-snug sm:text-5xl">
         今天也要 <span className="word-gold px-1">lucky</span> 一点
       </h1>
@@ -367,13 +368,10 @@ function Hero({ me }: { me?: SelfInfo | null }) {
         <br className="hidden sm:block" />
         每天摘一片叶子,签到与活动额度实时直充到 new-api 钱包。
       </p>
-      {!me && (
-        <a href="/api/oauth/linuxdo" className="mt-7">
-          <Button variant="gradient" size="lg">
-            <LogIn size={18} /> LinuxDO 一键进站
-          </Button>
-        </a>
-      )}
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+        {!me && <a href="/api/oauth/linuxdo" className="arcade-play-link"><LogIn size={17} /> LinuxDO 一键进站</a>}
+        <Link to="/game" className="arcade-play-link arcade-play-link-secondary"><Gamepad2 size={17} /> 去小游戏花园 <ArrowUpRight size={16} /></Link>
+      </div>
     </section>
   )
 }
@@ -801,6 +799,8 @@ export default function HomePage() {
         )}
 
         <ActivityFeed activities={activities.data} me={me} claimMut={claimMut} />
+
+        <ArcadeShowcase />
 
         <footer className="mt-16 flex flex-col items-center gap-2 border-t border-clover-100 pt-6 text-xs text-muted-foreground">
           <Clover size={20} petal="#8fd6a8" petalAlt="#bce3c9" />

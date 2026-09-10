@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#eaf2df">
+  <title>风芽飞行 · WIND SPROUT</title>
+  <style>
+    :root { color-scheme: light; --ink: #214e3d; --green: #397c55; --cream: #faf6e8; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; color: var(--ink); background: #eaf2df; }
+    button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulation; }
+    button:focus-visible, canvas:focus-visible { outline: 3px solid #397c55; outline-offset: 5px; }
+    button:disabled { cursor: default; opacity: .45; }
+    [hidden] { display: none !important; }
+    #game { position: relative; width: 100%; height: 100%; min-height: 260px; isolation: isolate; user-select: none; -webkit-user-select: none; overflow: hidden; background: radial-gradient(ellipse at 19% 14%, #fff9d9 0, transparent 43%), linear-gradient(170deg, #dbeada 0%, #eef3df 46%, #faf6e8 100%); }
+    #scene { display: block; width: 100%; height: 100%; touch-action: none; }
+    .vignette { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to bottom, #faf6e830, transparent 22%, transparent 80%, #faf6e857); }
+    .hud { position: absolute; z-index: 2; top: max(18px, env(safe-area-inset-top)); left: max(18px, env(safe-area-inset-left)); right: max(18px, env(safe-area-inset-right)); display: flex; align-items: flex-start; justify-content: space-between; pointer-events: none; }
+    .brand { display: flex; align-items: center; gap: 9px; margin-top: 8px; font-size: 13px; font-weight: 700; letter-spacing: .13em; }
+    .brand svg { width: 27px; height: 27px; }
+    .brand small { display: block; margin-top: 3px; font-size: 8px; font-weight: 500; letter-spacing: .21em; opacity: .62; }
+    .controls { display: flex; gap: 8px; pointer-events: auto; }
+    .icon-button { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; background: #faf6e8b8; border: 1px solid #ffffffb3; border-radius: 50%; box-shadow: 0 3px 15px #214e3d07; backdrop-filter: blur(8px); transition: background .2s, transform .2s; }
+    .icon-button:hover { background: #faf6e8; transform: translateY(-1px); }
+    .icon-button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .icon-button[aria-pressed="false"] .sound-wave { display: none; }
+    .icon-button[aria-pressed="true"] .sound-off { display: none; }
+    .scoreboard { position: absolute; left: 50%; top: 4px; transform: translateX(-50%); text-align: center; opacity: 0; transition: opacity .25s; }
+    .score-number { display: block; font-size: clamp(38px, 6vh, 58px); font-weight: 650; line-height: 1; letter-spacing: -.065em; font-variant-numeric: tabular-nums; text-shadow: 0 2px 15px #faf6e8; }
+    .best-line { display: block; margin-top: 7px; white-space: nowrap; font-size: 10px; letter-spacing: .06em; opacity: .72; }
+    #game[data-state="playing"] .scoreboard, #game[data-state="paused"] .scoreboard { opacity: 1; }
+    .welcome { position: absolute; inset: 13% 16px 8%; z-index: 1; display: flex; align-items: center; flex-direction: column; justify-content: space-between; text-align: center; pointer-events: none; }
+    .eyebrow { margin: 0 0 14px; font-size: 10px; letter-spacing: .3em; font-weight: 650; opacity: .68; }
+    h1 { margin: 0; font-family: "STKaiti", "KaiTi", "Kaiti SC", serif; font-size: clamp(42px, 7vh, 64px); font-weight: 700; letter-spacing: .13em; text-indent: .13em; }
+    .english { margin: 10px 0 0; font-size: 10px; letter-spacing: .43em; text-indent: .43em; opacity: .7; }
+    .intro { margin: 20px 0 0; font-size: 13px; letter-spacing: .08em; line-height: 1.8; opacity: .8; }
+    .launch { display: flex; flex-direction: column; align-items: center; }
+    .primary { display: flex; justify-content: center; align-items: center; gap: 18px; min-height: 52px; min-width: 206px; padding: 14px 28px; color: var(--cream); background: var(--ink); border: 1px solid #ffffff38; border-radius: 40px; font-size: 14px; font-weight: 650; letter-spacing: .12em; box-shadow: 0 8px 24px #214e3d20, inset 0 1px 0 #ffffff20; transition: transform .2s, background .2s; pointer-events: auto; }
+    .primary:hover { background: var(--green); transform: translateY(-2px); }
+    .primary:active { transform: translateY(1px) scale(.98); }
+    .primary svg { height: 17px; width: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .launch p { margin: 15px 0 0; font-size: 11px; line-height: 1.8; letter-spacing: .04em; opacity: .72; }
+    .launch .local-best { margin-top: 12px; font-size: 10px; opacity: .54; }
+    .dialog { position: absolute; z-index: 4; left: 50%; top: 50%; width: min(320px, calc(100% - 40px)); padding: 32px 28px 26px; transform: translate(-50%, -50%); border: 1px solid #ffffffd9; border-radius: 30px; background: #faf6e8ed; box-shadow: 0 18px 80px #214e3d18, inset 0 0 30px #ffffff40; backdrop-filter: blur(16px); text-align: center; }
+    .dialog h2 { margin: 0; font-family: "STKaiti", "KaiTi", "Kaiti SC", serif; font-size: 30px; font-weight: 700; letter-spacing: .07em; }
+    .dialog .eyebrow { font-size: 9px; margin-bottom: 12px; }
+    .dialog-copy { font-size: 12px; line-height: 1.9; opacity: .74; margin: 16px 0 23px; }
+    .dialog .primary { width: 100%; min-width: 0; }
+    .secondary { margin: 12px 0 -8px; padding: 12px 20px; min-height: 44px; background: transparent; border: 0; font-size: 12px; opacity: .7; }
+    .result { display: flex; align-items: flex-end; justify-content: center; gap: 27px; margin: 25px 0 8px; }
+    .result strong { display: block; font-size: 50px; letter-spacing: -.04em; font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; }
+    .result .record strong { font-size: 31px; color: var(--green); }
+    .result span { display: block; font-size: 10px; letter-spacing: .06em; margin-top: 10px; opacity: .66; }
+    .result .divider { height: 42px; width: 1px; background: #214e3d18; align-self: center; }
+    .hint { position: absolute; bottom: max(22px, env(safe-area-inset-bottom)); left: 0; right: 0; text-align: center; pointer-events: none; font-size: 11px; letter-spacing: .08em; opacity: 0; transition: opacity .3s; }
+    #game[data-state="playing"] .hint { opacity: .65; }
+    #game[data-state="playing"][data-guided="false"] .hint { opacity: 0; }
+    .issue { z-index: 5; }
+    .sr-only { position: absolute; height: 1px; width: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+    @media (min-width: 800px) { .hud { left: 32px; right: 32px; top: 26px; } .welcome { inset: 12% 20px 9%; } .brand { font-size: 15px; } }
+    @media (max-height: 540px) { .welcome { inset: 15% 14px 6%; } h1 { font-size: 35px; } .eyebrow { margin-bottom: 6px; } .intro { margin-top: 10px; font-size: 11px; } .english { margin-top: 5px; font-size: 8px; } .launch p { margin-top: 8px; font-size: 10px; } .launch .local-best { display: none; } .primary { min-height: 46px; padding: 10px 24px; } .dialog { padding-top: 22px; padding-bottom: 18px; } .dialog-copy { margin: 12px 0 16px; } .result { margin-top: 18px; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+  </style>
+</head>
+<body>
+  <main id="game" data-state="ready" data-score="0" data-guided="true" aria-label="风芽飞行">
+    <canvas id="scene" tabindex="0" aria-label="飞行区域。轻点、空格或向上键振翅；P 或 Esc 暂停。">你的浏览器需要支持 WebGL 才能描绘这片云端花园。</canvas>
+    <div class="vignette"></div>
+    <header class="hud">
+      <div class="brand" aria-hidden="true">
+        <svg viewBox="0 0 32 32" fill="none"><path d="M16 27V15M16 20C6 20 4 13 5 7c8-1 12 3 11 13ZM16 15c0-8 5-12 12-11 1 8-4 13-12 11Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        <span>风芽<small>WIND SPROUT</small></span>
+      </div>
+      <div class="scoreboard" aria-label="本局得分">
+        <span id="score" class="score-number">0</span>
+        <span class="best-line">本机最佳 <b id="best">0</b></span>
+      </div>
+      <div class="controls">
+        <button id="sound-button" class="icon-button" type="button" aria-label="开启音效" aria-pressed="false" title="开启音效">
+          <svg viewBox="0 0 24 24"><path d="m11 4-5 4H3v8h3l5 4V4Z"/><path class="sound-wave" d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/><path class="sound-off" d="m16 9 5 6m0-6-5 6"/></svg>
+        </button>
+        <button id="pause-button" class="icon-button" type="button" aria-label="暂停游戏" title="暂停游戏" disabled>
+          <svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg>
+        </button>
+      </div>
+    </header>
+    <section id="welcome" class="welcome" aria-label="开始游戏">
+      <div>
+        <p class="eyebrow">指尖掠过 · 云端花园</p>
+        <h1>风芽飞行</h1>
+        <p class="english">WIND SPROUT</p>
+        <p class="intro">轻点一下，借一阵风。<br>带着小小的勇气，穿过下一道石门。</p>
+      </div>
+      <div class="launch">
+        <button id="start-button" class="primary" type="button">轻点启程<svg viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+        <p>轻点屏幕 / 空格振翅<br>避开石门与上下云海 · 每过一门得 1 分</p>
+        <p class="local-best">本机最佳 · <span id="ready-best">0</span> 道石门</p>
+      </div>
+    </section>
+    <section id="dialog" class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" hidden>
+      <p id="dialog-kicker" class="eyebrow">TAKE A BREATH</p>
+      <h2 id="dialog-title">让风停一会儿</h2>
+      <div id="result" class="result" hidden>
+        <div><strong id="final-score">0</strong><span>本次穿过</span></div>
+        <div class="divider"></div>
+        <div class="record"><strong id="final-best">0</strong><span>本机最佳</span></div>
+      </div>
+      <p id="dialog-copy" class="dialog-copy">小风芽在这里，等你回来。</p>
+      <button id="continue-button" class="primary" type="button">继续飞行</button>
+      <button id="restart-button" class="secondary" type="button" hidden>重新启程</button>
+    </section>
+    <p id="hint" class="hint">轻点振翅，找到自己的节奏</p>
+    <section id="issue" class="dialog issue" role="alert" hidden>
+      <p class="eyebrow">A LITTLE PAUSE</p>
+      <h2 id="issue-title">云端正在恢复</h2>
+      <p id="issue-copy" class="dialog-copy">画面恢复后，可以接着飞。</p>
+      <button id="reload-button" class="primary" type="button">重新载入</button>
+    </section>
+    <p id="announcement" class="sr-only" role="status" aria-live="polite"></p>
+  </main>
+
+  <script id="game-engine">
+  'use strict';
+  // This is the shipped simulation. It deliberately has no DOM, audio or renderer dependency.
+  const WindSprout = (() => {
+    const config = Object.freeze({
+      playerX: -1.45, radius: 0.29, ceiling: 5.05, floor: -5.05,
+      gravity: -11.6, impulse: 4.35, terminalVelocity: -8,
+      gateWidth: 1.08, firstGateX: 4.5, spacing: 3.8,
+      initialGap: 3.35, minimumGap: 2.85, maxGapCenter: 2.1, maxGapChange: 1.2,
+      baseSpeed: 2.12, maxSpeed: 2.72, step: 1 / 120, maxFrame: 0.1,
+    });
+    const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+
+    function createGame(options = {}) {
+      const random = options.random || Math.random;
+      const state = { phase: 'ready', y: 0, velocity: 0, score: 0, elapsed: 0, distance: 0, flapAge: 1, gates: [], hit: null };
+      let accumulator = 0;
+      let nextId = 0;
+      let previousCenter = 0;
+
+      function makeGate(x, first = false) {
+        const value = random();
+        const unit = Number.isFinite(value) ? clamp(value, 0, 1) : 0.5;
+        const center = first ? 0 : clamp(previousCenter + (unit * 2 - 1) * config.maxGapChange, -config.maxGapCenter, config.maxGapCenter);
+        previousCenter = center;
+        return { id: nextId++, x, center, gap: Math.max(config.minimumGap, config.initialGap - state.score * 0.018), passed: false };
+      }
+
+      function reset() {
+        Object.assign(state, { phase: 'ready', y: 0, velocity: 0, score: 0, elapsed: 0, distance: 0, flapAge: 1, gates: [], hit: null });
+        accumulator = 0;
+        nextId = 0;
+        previousCenter = 0;
+        for (let i = 0; i < 4; i++) state.gates.push(makeGate(config.firstGateX + i * config.spacing, i === 0));
+      }
+
+      function flap() {
+        if (state.phase === 'ready') state.phase = 'playing';
+        if (state.phase !== 'playing') return false;
+        state.velocity = config.impulse;
+        state.flapAge = 0;
+        return true;
+      }
+
+      function pause() {
+        if (state.phase !== 'playing') return false;
+        state.phase = 'paused';
+        accumulator = 0;
+        return true;
+      }
+
+      function resume() {
+        if (state.phase !== 'paused') return false;
+        state.phase = 'playing';
+        accumulator = 0;
+        return true;
+      }
+
+      function end(kind) {
+        state.phase = 'over';
+        state.hit = { kind, x: config.playerX, y: state.y };
+        accumulator = 0;
+      }
+
+      function tick() {
+        const dt = config.step;
+        state.elapsed += dt;
+        state.flapAge += dt;
+        state.velocity = Math.max(config.terminalVelocity, state.velocity + config.gravity * dt);
+        state.y += state.velocity * dt;
+        const travel = Math.min(config.maxSpeed, config.baseSpeed + state.score * 0.025) * dt;
+        state.distance += travel;
+        for (const gate of state.gates) gate.x -= travel;
+
+        if (state.y - config.radius <= config.floor || state.y + config.radius >= config.ceiling) {
+          state.y = clamp(state.y, config.floor + config.radius, config.ceiling - config.radius);
+          end('cloud');
+          return;
+        }
+        for (const gate of state.gates) {
+          // Circle vs. the actual stone faces: the tiny leaves and wing tips are forgiving.
+          const dx = config.playerX - clamp(config.playerX, gate.x - config.gateWidth / 2, gate.x + config.gateWidth / 2);
+          if (Math.abs(dx) <= config.radius) {
+            const bottomDistance = Math.max(0, state.y - (gate.center - gate.gap / 2));
+            const topDistance = Math.max(0, gate.center + gate.gap / 2 - state.y);
+            if (dx * dx + Math.min(bottomDistance * bottomDistance, topDistance * topDistance) <= config.radius * config.radius) {
+              end('stone');
+              return;
+            }
+          }
+          if (!gate.passed && gate.x + config.gateWidth / 2 < config.playerX - config.radius) {
+            gate.passed = true;
+            state.score++;
+          }
+        }
+        state.gates = state.gates.filter(gate => gate.x > -16);
+        while (!state.gates.length || state.gates[state.gates.length - 1].x < 15) {
+          const last = state.gates[state.gates.length - 1];
+          state.gates.push(makeGate(last ? last.x + config.spacing : config.firstGateX));
+        }
+      }
+
+      function step(delta) {
+        if (state.phase !== 'playing' || !Number.isFinite(delta) || delta <= 0) return;
+        accumulator = Math.min(config.maxFrame, accumulator + Math.min(delta, config.maxFrame));
+        while (accumulator + 1e-10 >= config.step && state.phase === 'playing') {
+          accumulator -= config.step;
+          tick();
+        }
+      }
+
+      reset();
+      return { state, flap, pause, resume, reset, step };
+    }
+    return Object.freeze({ config, createGame });
+  })();
+  </script>
+
+  <script>
+  (() => {
+    'use strict';
+    const $ = id => document.getElementById(id);
+    const root = $('game');
+    const canvas = $('scene');
+    const game = WindSprout.createGame();
+    const C = WindSprout.config;
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+    let best = 0;
+    let soundOn = false;
+    try {
+      const saved = Number(localStorage.getItem('wind-sprout.best'));
+      best = Number.isSafeInteger(saved) && saved >= 0 ? saved : 0;
+      soundOn = localStorage.getItem('wind-sprout.sound') === 'on';
+    } catch (_) { /* Private browsing can deny storage without affecting a round. */ }
+    let audio = null;
+    let audioUnavailable = false;
+    let renderer = null;
+    let contextLost = false;
+    let frame = 0;
+    let lastTime = 0;
+    let idleTime = 0;
+    let deathTime = 0;
+    let phaseBefore = 'ready';
+    let lastScore = 0;
+    let lastUiState = '';
+    let particles = [];
+
+    function updateBest() {
+      $('best').textContent = best;
+      $('ready-best').textContent = best;
+      $('final-best').textContent = best;
+    }
+    function updateSound() {
+      const label = audioUnavailable ? '此浏览器暂不支持音效' : soundOn ? '关闭音效' : '开启音效';
+      $('sound-button').setAttribute('aria-label', label);
+      $('sound-button').setAttribute('title', label);
+      $('sound-button').setAttribute('aria-pressed', String(soundOn));
+    }
+    function prepareAudio() {
+      if (!soundOn || audioUnavailable) return;
+      try {
+        const Audio = window.AudioContext || window.webkitAudioContext;
+        if (!Audio) throw new Error('Audio unavailable');
+        if (!audio) audio = new Audio();
+        if (audio.state === 'suspended') audio.resume().catch(() => {});
+      } catch (_) {
+        audioUnavailable = true;
+        soundOn = false;
+        updateSound();
+      }
+    }
+    function tone(frequency, end, duration, volume = 0.025, offset = 0) {
+      if (!soundOn || !audio || audio.state !== 'running') return;
+      try {
+        const oscillator = audio.createOscillator();
+        const gain = audio.createGain();
+        const start = audio.currentTime + offset;
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(frequency, start);
+        oscillator.frequency.exponentialRampToValueAtTime(end, start + duration);
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(volume, start + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+        oscillator.connect(gain);
+        gain.connect(audio.destination);
+        oscillator.start(start);
+        oscillator.stop(start + duration + 0.01);
+        oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
+      } catch (_) { /* Audio output is optional. */ }
+    }
+
+    function announce(text) { $('announcement').textContent = text; }
+    function setDialog(paused) {
+      $('dialog').hidden = false;
+      $('result').hidden = paused;
+      $('restart-button').hidden = !paused;
+      $('dialog-kicker').textContent = paused ? 'TAKE A BREATH' : 'UNTIL THE NEXT BREEZE';
+      $('dialog-title').textContent = paused ? '让风停一会儿' : '下一阵风，再见';
+      $('dialog-copy').textContent = paused ? '小风芽在这里，等你回来。' : game.state.score >= best && best > 0 ? '这一程，留下了新的风景。' : '慢慢来，每一次振翅都会更轻盈。';
+      $('continue-button').textContent = paused ? '继续飞行' : '再飞一次';
+      $('continue-button').focus({ preventScroll: true });
+    }
+    function syncState() {
+      const state = game.state;
+      const uiState = `${state.phase}:${state.score}:${contextLost}`;
+      if (uiState === lastUiState) return;
+      lastUiState = uiState;
+      root.dataset.state = state.phase;
+      root.dataset.score = String(state.score);
+      root.dataset.guided = String(state.score < 2);
+      $('welcome').hidden = state.phase !== 'ready';
+      $('score').textContent = state.score;
+      $('pause-button').disabled = !['playing', 'paused'].includes(state.phase) || contextLost;
+      $('pause-button').setAttribute('aria-label', state.phase === 'paused' ? '继续游戏' : '暂停游戏');
+      $('pause-button').setAttribute('title', state.phase === 'paused' ? '继续游戏' : '暂停游戏');
+      if (state.phase !== 'paused' && state.phase !== 'over') $('dialog').hidden = true;
+      if (state.phase !== phaseBefore) {
+        if (state.phase === 'paused') { setDialog(true); announce('游戏已暂停。'); }
+        if (state.phase === 'over') {
+          deathTime = 0;
+          $('final-score').textContent = state.score;
+          tone(150, 48, 0.23, 0.045);
+          burst(C.playerX, state.y, 14, true);
+          announce(`本次穿过 ${state.score} 道石门。本机最佳 ${best} 分。`);
+        }
+        phaseBefore = state.phase;
+      }
+      if (state.score !== lastScore) {
+        if (state.score > best) {
+          best = state.score;
+          try { localStorage.setItem('wind-sprout.best', String(best)); } catch (_) {}
+          updateBest();
+        }
+        if (state.score > lastScore) {
+          tone(680, 800, 0.12, 0.025);
+          tone(960, 1080, 0.18, 0.018, 0.07);
+          burst(C.playerX + 0.4, state.y, 9, false);
+          if (!reducedMotion.matches && $('score').animate) $('score').animate([{ transform: 'scale(1.18)' }, { transform: 'scale(1)' }], { duration: 250, easing: 'ease-out' });
+        }
+        lastScore = state.score;
+      }
+    }
+
+    function flap() {
+      if (contextLost || !renderer || !['ready', 'playing'].includes(game.state.phase)) return;
+      prepareAudio();
+      if (game.flap()) {
+        tone(470, 820, 0.09, 0.022);
+        canvas.focus({ preventScroll: true });
+        syncState();
+      }
+    }
+    function restart() {
+      if (contextLost || !renderer) return;
+      game.reset();
+      particles = [];
+      lastTime = performance.now();
+      lastScore = 0;
+      deathTime = 0;
+      phaseBefore = 'ready';
+      $('dialog').hidden = true;
+      flap();
+    }
+    function pause() {
+      if (game.pause()) syncState();
+    }
+    function resume() {
+      if (contextLost || !renderer) return;
+      if (game.resume()) {
+        lastTime = performance.now();
+        // The explicit resume gesture also gives a flap so returning is never a surprise fall.
+        flap();
+        announce('继续飞行。');
+      }
+    }
+
+    $('start-button').addEventListener('click', flap);
+    $('continue-button').addEventListener('click', () => game.state.phase === 'paused' ? resume() : restart());
+    $('restart-button').addEventListener('click', restart);
+    $('pause-button').addEventListener('click', () => game.state.phase === 'paused' ? resume() : pause());
+    $('sound-button').addEventListener('click', () => {
+      soundOn = !soundOn;
+      prepareAudio();
+      updateSound();
+      try { localStorage.setItem('wind-sprout.sound', soundOn ? 'on' : 'off'); } catch (_) {}
+      if (soundOn) tone(740, 940, 0.12);
+    });
+    $('reload-button').addEventListener('click', () => location.reload());
+    canvas.addEventListener('pointerdown', event => {
+      if (!event.isPrimary || event.button !== 0) return;
+      event.preventDefault();
+      flap();
+    });
+    window.addEventListener('keydown', event => {
+      if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.code === 'KeyP' || event.code === 'Escape') {
+        event.preventDefault();
+        if (game.state.phase === 'paused') resume();
+        else pause();
+        return;
+      }
+      if (event.target instanceof Element && event.target.closest('button, a, input, textarea, select')) return;
+      if (event.code === 'Space' || event.code === 'ArrowUp') {
+        event.preventDefault();
+        if (game.state.phase === 'paused') resume();
+        else flap();
+      }
+    });
+    // Trap modal focus without interfering with native button activation or gameplay keys.
+    root.addEventListener('keydown', event => {
+      if (event.key !== 'Tab') return;
+      const modal = !$('issue').hidden ? $('issue') : !$('dialog').hidden ? $('dialog') : null;
+      if (!modal) return;
+      const buttons = Array.from(modal.querySelectorAll('button')).filter(button => !button.hidden && !button.disabled);
+      const first = buttons[0], last = buttons[buttons.length - 1];
+      if (!modal.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    });
+    window.addEventListener('blur', pause);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { pause(); cancelAnimationFrame(frame); frame = 0; }
+      else { lastTime = performance.now(); if (!frame) frame = requestAnimationFrame(loop); }
+    });
+    window.addEventListener('pagehide', () => { pause(); cancelAnimationFrame(frame); frame = 0; });
+    window.addEventListener('pageshow', () => { lastTime = performance.now(); if (!frame && !document.hidden) frame = requestAnimationFrame(loop); });
+    canvas.addEventListener('webglcontextlost', event => {
+      event.preventDefault();
+      contextLost = true;
+      pause();
+      $('issue').hidden = false;
+      $('issue-title').textContent = '云端正在恢复';
+      $('issue-copy').textContent = '画面暂时中断，游戏已经停好。恢复后可以继续飞。';
+      $('reload-button').focus({ preventScroll: true });
+      syncState();
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      try {
+        renderer = createRenderer(canvas);
+        contextLost = false;
+        $('issue').hidden = true;
+        lastTime = performance.now();
+        syncState();
+        if (game.state.phase === 'paused') $('continue-button').focus({ preventScroll: true });
+      } catch (_) { showGraphicsError(); }
+    });
+    function showGraphicsError() {
+      renderer = null;
+      contextLost = true;
+      pause();
+      $('issue').hidden = false;
+      $('issue-title').textContent = '这阵风暂时迷路了';
+      $('issue-copy').textContent = '浏览器未能开启 3D 画面。可以刷新重试，或使用支持 WebGL 的浏览器。';
+      $('reload-button').focus({ preventScroll: true });
+    }
+
+    function burst(x, y, count, collision) {
+      if (reducedMotion.matches) return;
+      for (let i = 0; i < count; i++) {
+        const angle = i / count * Math.PI * 2;
+        particles.push({ x, y, z: 0.4, vx: Math.cos(angle) * (collision ? 1.8 : 1.2), vy: Math.sin(angle) * 1.7, life: 0.7, total: 0.7, size: collision ? 0.055 : 0.045, warm: i % 3 === 0 });
+      }
+    }
+
+    // Small, self-contained WebGL renderer. Every shape is local geometry; no assets are fetched.
+    function createRenderer(target) {
+      const gl = target.getContext('webgl', { alpha: true, antialias: true, powerPreference: 'low-power', premultipliedAlpha: false });
+      if (!gl) throw new Error('WebGL unavailable');
+      const vertexSource = `
+        attribute vec3 aPosition;
+        attribute vec3 aNormal;
+        uniform mat4 uModel;
+        uniform mat4 uCamera;
+        uniform mat3 uNormal;
+        varying vec3 vNormal;
+        varying vec3 vWorld;
+        varying vec3 vLocal;
+        void main() {
+          vec4 world = uModel * vec4(aPosition, 1.0);
+          vWorld = world.xyz;
+          vLocal = aPosition;
+          vNormal = normalize(uNormal * aNormal);
+          gl_Position = uCamera * world;
+        }`;
+      const fragmentSource = `
+        precision mediump float;
+        uniform vec3 uColor;
+        uniform float uShine;
+        uniform float uAlpha;
+        varying vec3 vNormal;
+        varying vec3 vWorld;
+        varying vec3 vLocal;
+        void main() {
+          vec3 normal = normalize(vNormal);
+          vec3 light = normalize(vec3(-0.55, 0.9, 0.8));
+          vec3 view = normalize(vec3(0.0, 2.0, 20.0) - vWorld);
+          float diffuse = max(dot(normal, light), 0.0);
+          float fill = max(dot(normal, normalize(vec3(0.8, 0.1, 0.5))), 0.0);
+          float ao = mix(0.86, 1.0, smoothstep(-0.8, 0.5, normal.y));
+          float grain = sin(vLocal.x * 43.0 + sin(vLocal.y * 32.0)) * sin(vLocal.z * 39.0 + vLocal.y * 17.0) * 0.014;
+          vec3 color = uColor * (0.66 + diffuse * 0.37 + fill * 0.06 + grain) * ao;
+          float specular = pow(max(dot(normal, normalize(light + view)), 0.0), 38.0);
+          color += vec3(1.0, 0.96, 0.80) * specular * uShine;
+          color += vec3(0.92, 0.98, 0.80) * pow(1.0 - max(dot(normal, view), 0.0), 3.0) * 0.05;
+          vec3 fog = mix(vec3(0.979, 0.965, 0.906), vec3(0.875, 0.932, 0.847), clamp((vWorld.y + 7.0) / 17.0, 0.0, 1.0));
+          float distanceFog = clamp(1.0 - exp(-max(0.0, -vWorld.z - 1.0) * 0.039), 0.0, 0.83);
+          gl_FragColor = vec4(mix(color, fog, distanceFog), uAlpha);
+        }`;
+      function compile(type, source) {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) { gl.deleteShader(shader); throw new Error('Shader could not be compiled'); }
+        return shader;
+      }
+      const program = gl.createProgram();
+      const vertex = compile(gl.VERTEX_SHADER, vertexSource);
+      const fragment = compile(gl.FRAGMENT_SHADER, fragmentSource);
+      gl.attachShader(program, vertex);
+      gl.attachShader(program, fragment);
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error('Shader could not be linked');
+      gl.deleteShader(vertex);
+      gl.deleteShader(fragment);
+      gl.useProgram(program);
+      const uniforms = {};
+      for (const name of ['Model', 'Camera', 'Normal', 'Color', 'Shine', 'Alpha']) uniforms[name] = gl.getUniformLocation(program, 'u' + name);
+      const position = gl.getAttribLocation(program, 'aPosition');
+      const normal = gl.getAttribLocation(program, 'aNormal');
+      gl.enableVertexAttribArray(position);
+      gl.enableVertexAttribArray(normal);
+      gl.enable(gl.DEPTH_TEST);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.clearColor(0, 0, 0, 0);
+
+      const normalize = v => { const length = Math.hypot(...v) || 1; return v.map(n => n / length); };
+      const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+      const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+      function mesh(data) {
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
+        return { buffer, count: data.length / 6 };
+      }
+      function parametric(fn, horizontal, vertical) {
+        const data = [];
+        for (let y = 0; y < vertical; y++) for (let x = 0; x < horizontal; x++) {
+          const a = fn(x / horizontal, y / vertical), b = fn((x+1) / horizontal, y / vertical);
+          const c = fn((x+1) / horizontal, (y+1) / vertical), d = fn(x / horizontal, (y+1) / vertical);
+          data.push(...a, ...b, ...d, ...b, ...c, ...d);
+        }
+        return data;
+      }
+      const spherePoint = (u, v) => {
+        const angle = u * Math.PI * 2, latitude = v * Math.PI;
+        const p = [Math.cos(angle)*Math.sin(latitude), Math.cos(latitude), Math.sin(angle)*Math.sin(latitude)];
+        return [...p, ...p];
+      };
+      const sphere = mesh(parametric(spherePoint, 20, 14));
+      const pebble = mesh(parametric(spherePoint, 10, 7));
+      const boxData = [];
+      for (let axis = 0; axis < 3; axis++) for (const side of [-1, 1]) {
+        boxData.push(...parametric((u, v) => {
+          const point = [0,0,0];
+          point[axis] = side * 0.5;
+          point[(axis+1)%3] = u - 0.5;
+          point[(axis+2)%3] = v - 0.5;
+          const core = point.map(p => Math.max(-0.36, Math.min(0.36, p)));
+          const n = normalize(point.map((p, i) => p - core[i]));
+          return [...core.map((p, i) => p + n[i] * 0.14), ...n];
+        }, 6, 6));
+      }
+      const box = mesh(boxData);
+      const leaf = mesh(parametric((u, v) => {
+        const latitude = v * Math.PI, angle = u * Math.PI * 2;
+        const width = Math.pow(Math.sin(latitude), 1.4);
+        const p = [Math.cos(angle) * width, Math.cos(latitude), Math.sin(angle) * Math.sin(latitude)];
+        return [...p, ...normalize([p[0], p[1] * 0.8, p[2]])];
+      }, 10, 10));
+      const rockData = [];
+      const rings = [[0.66,0.18],[0.72,-0.13],[0.45,-0.65],[0.13,-1.23],[0,-1.35]];
+      function rockPoint(ring, i) {
+        const a = i * Math.PI / 4;
+        const wobble = 1 + Math.sin(i * 7.4 + ring * 1.9) * 0.12;
+        return [Math.cos(a)*rings[ring][0]*wobble, rings[ring][1], Math.sin(a)*rings[ring][0]*wobble];
+      }
+      function triangle(a,b,c) {
+        const n = normalize(cross(b.map((p,i)=>p-a[i]), c.map((p,i)=>p-a[i])));
+        rockData.push(...a,...n,...b,...n,...c,...n);
+      }
+      for (let r=0;r<rings.length-1;r++) for(let i=0;i<8;i++) {
+        const a=rockPoint(r,i), b=rockPoint(r,i+1), c=rockPoint(r+1,i+1), d=rockPoint(r+1,i);
+        triangle(a,b,d); triangle(b,c,d);
+      }
+      const rock = mesh(rockData);
+      const colors = {
+        body: [0.64,0.82,0.47], belly: [0.80,0.90,0.63], eye: [0.09,0.25,0.17], white: [1,0.994,0.91],
+        wing: [0.99,0.96,0.78], leaf: [0.34,0.63,0.29], vein: [0.64,0.78,0.41], blush: [0.95,0.78,0.46],
+        stone: [0.77,0.80,0.65], stoneLight: [0.84,0.86,0.71], moss: [0.48,0.65,0.31], mossLight: [0.68,0.78,0.40],
+        mossDark: [0.36,0.52,0.29], cloud: [0.995,0.985,0.90], distant: [0.73,0.79,0.62], gold: [0.96,0.83,0.43],
+      };
+      const model = new Float32Array(16);
+      const normalMatrix = new Float32Array(9);
+      let boundMesh = null;
+      function draw(shape, color, x,y,z, sx,sy,sz, rz=0, ry=0, shine=0, alpha=1) {
+        if (sx <= 0 || sy <= 0 || sz <= 0 || alpha <= 0) return;
+        const cz=Math.cos(rz), sn=Math.sin(rz), cy=Math.cos(ry), syaw=Math.sin(ry);
+        const r0=cz*cy, r1=sn*cy, r2=-syaw, r3=-sn, r4=cz, r5=0, r6=cz*syaw, r7=sn*syaw, r8=cy;
+        model.set([r0*sx,r1*sx,r2*sx,0, r3*sy,r4*sy,r5*sy,0, r6*sz,r7*sz,r8*sz,0, x,y,z,1]);
+        normalMatrix.set([r0/sx,r1/sx,r2/sx, r3/sy,r4/sy,r5/sy, r6/sz,r7/sz,r8/sz]);
+        if (boundMesh !== shape) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, shape.buffer);
+          gl.vertexAttribPointer(position, 3, gl.FLOAT, false, 24, 0);
+          gl.vertexAttribPointer(normal, 3, gl.FLOAT, false, 24, 12);
+          boundMesh = shape;
+        }
+        gl.uniformMatrix4fv(uniforms.Model, false, model);
+        gl.uniformMatrix3fv(uniforms.Normal, false, normalMatrix);
+        gl.uniform3fv(uniforms.Color, color);
+        gl.uniform1f(uniforms.Shine, shine);
+        gl.uniform1f(uniforms.Alpha, alpha);
+        if (alpha < 1) gl.depthMask(false);
+        gl.drawArrays(gl.TRIANGLES, 0, shape.count);
+        if (alpha < 1) gl.depthMask(true);
+      }
+      function multiply(a, b) {
+        const out = new Float32Array(16);
+        for(let c=0;c<4;c++) for(let r=0;r<4;r++) for(let k=0;k<4;k++) out[c*4+r] += a[k*4+r]*b[c*4+k];
+        return out;
+      }
+      let width=0, height=0, worldWidth=0;
+      function resize() {
+        const rect=target.getBoundingClientRect();
+        const ratio=Math.min(window.devicePixelRatio || 1, 1.7);
+        const w=Math.max(1,Math.round(rect.width*ratio)), h=Math.max(1,Math.round(rect.height*ratio));
+        if(w===width&&h===height) return;
+        width=w; height=h; target.width=w; target.height=h;
+        gl.viewport(0,0,w,h);
+        const aspect=w/h;
+        const viewHeight=Math.max(12.5, 6 / aspect);
+        worldWidth=viewHeight*aspect;
+        const projection=new Float32Array([2/worldWidth,0,0,0, 0,2/viewHeight,0,0, 0,0,-2/80,0, 0,0,-1,1]);
+        const eye=[0,2,20], backward=normalize(eye), right=normalize(cross([0,1,0],backward)), up=cross(backward,right);
+        const view=new Float32Array([right[0],up[0],backward[0],0, right[1],up[1],backward[1],0, right[2],up[2],backward[2],0, -dot(right,eye),-dot(up,eye),-dot(backward,eye),1]);
+        gl.uniformMatrix4fv(uniforms.Camera,false,multiply(projection,view));
+      }
+      function island(x,y,z,size,seed) {
+        draw(rock,colors.distant,x,y,z,size,size,size,0,seed);
+        draw(pebble,colors.moss,x,y+.16*size,z,.74*size,.17*size,.69*size);
+        draw(pebble,colors.mossLight,x-.13*size,y+.24*size,z+.08*size,.49*size,.10*size,.52*size);
+        for (let j=0;j<3;j++) {
+          const tx=x+(j-1)*size*.35, ty=y+.35*size, tz=z+(j%2)*size*.18;
+          draw(box,colors.stoneLight,tx,ty+.25*size,tz,.17*size,.65*size,.17*size);
+          draw(pebble,colors.leaf,tx,ty+.65*size,tz,.27*size,.32*size,.26*size);
+          draw(pebble,colors.mossLight,tx-.1*size,ty+.69*size,tz+.04*size,.2*size,.22*size,.22*size);
+        }
+      }
+      function cloud(x,y,z,size) {
+        draw(pebble,colors.cloud,x,y,z,size*.9,size*.35,size*.47);
+        draw(pebble,colors.cloud,x-size*.55,y-size*.10,z+.09,size*.65,size*.27,size*.39);
+        draw(pebble,colors.cloud,x+size*.55,y-size*.10,z-.03,size*.7,size*.3,size*.45);
+      }
+      function pillar(gate, upper) {
+        const end=gate.center+(upper?1:-1)*gate.gap/2;
+        const height=upper ? 8-end : end+8;
+        const center=end+(upper?1:-1)*height/2;
+        draw(box,colors.stone,gate.x,center,-.06,C.gateWidth,height,1.02);
+        // A second shallow face, seams and trailing moss make these little garden ruins.
+        draw(box,colors.stoneLight,gate.x-.05,center,.46,C.gateWidth*.79,height*.95,.09);
+        const inset=upper ? .12 : -.12;
+        draw(box,colors.mossDark,gate.x,end+inset,0,C.gateWidth*1.04,.25,1.12);
+        draw(box,colors.moss,gate.x,end+inset+(upper?.025:.055),.035,C.gateWidth*1.07,.18,1.13);
+        for(let j=0;j<5;j++) {
+          const dx=(j-2)*.205, variation=Math.sin(gate.id*3.7+j*2.2)*.025;
+          draw(pebble,j%2?colors.mossLight:colors.moss,gate.x+dx,end+inset+variation,.47,.17,.12,.15);
+          draw(leaf,j%2?colors.leaf:colors.mossDark,gate.x+dx,end+(upper?.22:-.26)-(j%3)*.15,.51,.065,.16+(j%3)*.04,.032,(j%2?.25:-.3));
+        }
+        for(let j=1;j<4;j++) {
+          const seam=end+(upper?1:-1)*(j*.95+.35);
+          if(Math.abs(seam)<7.5) draw(box,colors.stone,gate.x+(j%2?.17:-.16),seam,.515,.41,.035,.025);
+        }
+        if(!upper) {
+          draw(leaf,colors.leaf,gate.x-.29,end+.10,-.22,.075,.17,.035,-.45);
+          draw(leaf,colors.mossLight,gate.x-.17,end+.14,-.22,.08,.20,.038,.5);
+          draw(pebble,colors.wing,gate.x+.30,end+.04,.23,.055,.04,.05);
+        }
+      }
+      function creature(x,y,time,ready,state) {
+        const scale=ready?1.55:1;
+        const tilt=ready?Math.sin(time*.9)*.035:Math.max(-.62,Math.min(.34,state.velocity*.075));
+        const flap=ready?Math.sin(time*3.5)*.30:Math.exp(-state.flapAge*8)*1.0-.22;
+        const squash=ready?0:Math.exp(-state.flapAge*14)*.075;
+        const cos=Math.cos(tilt), sin=Math.sin(tilt);
+        function part(shape,color,px,py,pz,sx,sy,sz,rz=0,ry=0,shine=0) {
+          draw(shape,color,x+(px*cos-py*sin)*scale,y+(px*sin+py*cos)*scale,pz*scale,sx*scale,sy*scale,sz*scale,rz+tilt,ry,shine);
+        }
+        for(const side of [-1,1]) {
+          part(leaf,colors.wing,side*.47,-.015,-.02,.25,.105,.07,side*(.5+flap));
+          part(leaf,colors.wing,side*.61,.035+flap*.17,-.02,.30,.10,.055,side*(.55+flap));
+          part(leaf,colors.wing,side*.60,-.08+flap*.08,.025,.24,.075,.05,side*(.23+flap*.5));
+          part(pebble,colors.leaf,side*.15,-.365,.06,.095,.085,.10,side*.25);
+        }
+        part(sphere,colors.body,0,0,0,.41+squash,.43-squash,.34,0,0,.07);
+        part(sphere,colors.belly,.025,-.11,.285,.28,.27,.066,0,0,.035);
+        for(const side of [-1,1]) {
+          part(leaf,colors.leaf,side*.22,.47,-.025,.14,.31,.053,-side*.50,-side*.25);
+          part(leaf,colors.vein,side*.21,.47,.023,.011,.22,.008,-side*.50);
+          part(sphere,colors.eye,side*.14+.045,.073,.329,.061,.082,.043,0,0,.27);
+          part(pebble,colors.white,side*.14+.026,.102,.364,.019,.023,.012);
+          part(pebble,colors.blush,side*.255+.028,-.044,.29,.051,.025,.012);
+        }
+        part(pebble,colors.eye,.045,-.066,.355,.025,.014,.010);
+        part(pebble,colors.body,.045,-.057,.362,.020,.012,.008);
+      }
+      const wrap=(value,size)=>((value+size/2)%size+size)%size-size/2;
+      function render(state,time,effects) {
+        resize();
+        gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+        boundMesh=null;
+        const ready=state.phase==='ready';
+        const distance=state.distance+(ready&&!reducedMotion.matches?time*.2:0);
+        const scenicWidth=Math.max(32,worldWidth+12);
+        for(let i=0;i<9;i++) {
+          const x=wrap((i-4)*4.5-distance*.16,scenicWidth);
+          const y=Math.sin(i*5.12)*3.7+.4;
+          island(x,y,-12-(i%3)*4,.72+(i%3)*.23,i*.7);
+        }
+        for(let i=0;i<10;i++) {
+          const x=wrap(i*4.7-18-distance*.23,scenicWidth);
+          const y=Math.sin(i*9.6)*4.6;
+          cloud(x,y,-7-(i%4)*2,1.15+(i%3)*.35);
+        }
+        // Background pillars frame the start without putting a collision in the first tap.
+        if(ready) {
+          island(2.8,-2.1,-2.7,1.30,.8);
+          island(-3.5,1.5,-4.2,.9,1.7);
+        }
+        for(const gate of state.gates) {
+          if(gate.x < -worldWidth/2-2 || gate.x > worldWidth/2+2) continue;
+          pillar(gate,false); pillar(gate,true);
+        }
+        const wave=reducedMotion.matches?0:Math.sin(time*1.6)*.09;
+        creature(ready?-.18:C.playerX,ready?-.18+wave:state.y,time,ready,state);
+        // Clear cloud banks mark both bounds of the flight corridor.
+        const borderWidth=Math.max(12,Math.ceil(worldWidth/2)+2);
+        for(let i=-borderWidth;i<=borderWidth;i+=2) {
+          const x=i-(distance*.45%2);
+          cloud(x,C.floor-.36,-.7,1.20);
+          cloud(x+.7,C.ceiling+.43,-1.2,1.14);
+        }
+        for(const p of effects) {
+          const alpha=Math.max(0,p.life/p.total);
+          draw(pebble,p.warm?colors.gold:colors.wing,p.x,p.y,p.z,p.size*alpha,p.size*alpha,p.size*alpha,0,0,0,alpha);
+        }
+      }
+      return { render };
+    }
+
+    function loop(now) {
+      frame = 0;
+      if (document.hidden) return;
+      const dt = Math.min(0.1, Math.max(0, (now-lastTime)/1000));
+      lastTime = now;
+      game.step(dt);
+      if (game.state.phase === 'ready' || game.state.phase === 'playing') idleTime += dt;
+      syncState();
+      if (game.state.phase === 'over') {
+        deathTime += dt;
+        if (deathTime >= 0.38 && $('dialog').hidden && !contextLost) setDialog(false);
+      }
+      if (game.state.phase !== 'paused') {
+        for (const p of particles) { p.life -= dt; p.x += p.vx*dt; p.y += p.vy*dt; p.vy -= dt*2; }
+        particles = particles.filter(p => p.life > 0);
+      }
+      if (renderer && !contextLost) renderer.render(game.state, idleTime, particles);
+      frame = requestAnimationFrame(loop);
+    }
+    updateBest();
+    updateSound();
+    try { renderer = createRenderer(canvas); } catch (_) { showGraphicsError(); }
+    syncState();
+    lastTime = performance.now();
+    frame = requestAnimationFrame(loop);
+  })();
+  </script>
+</body>
+</html>
