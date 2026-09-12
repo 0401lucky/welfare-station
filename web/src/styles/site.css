@@ -1,0 +1,74 @@
+/* Opt-in site surfaces; game pages and the arcade showcase keep their own styles. */
+.site-shell {
+  isolation: isolate;
+}
+
+.site-anchor {
+  scroll-margin-top: 8.5rem;
+}
+
+.site-hero {
+  min-height: 218px;
+}
+
+.site-hero-art {
+  object-fit: contain;
+  object-position: right center;
+}
+
+.site-hero-copy {
+  max-width: 75%;
+}
+
+.site-hero-scrim {
+  background: linear-gradient(90deg, theme('colors.cream') 0%, rgb(250 246 232 / 92%) 28%, rgb(250 246 232 / 20%) 76%, transparent 100%);
+}
+
+.site-summary::-webkit-details-marker {
+  display: none;
+}
+
+details[open] > .site-summary > svg {
+  transform: rotate(180deg);
+}
+
+.site-summary > svg {
+  transition: transform 180ms ease;
+}
+
+.site-draw-button:not(:disabled):hover > span > span:first-child {
+  border-color: theme('colors.clover.500');
+}
+
+@media (min-width: 640px) {
+  .site-hero {
+    min-height: 232px;
+  }
+
+  .site-hero-copy {
+    max-width: 76%;
+  }
+
+  .site-hero-art {
+    object-position: right center;
+  }
+
+  .site-hero-scrim {
+    background: linear-gradient(90deg, rgb(250 246 232 / 96%) 0%, rgb(250 246 232 / 84%) 30%, rgb(250 246 232 / 16%) 64%, transparent 82%);
+  }
+}
+
+@media (min-width: 1024px) {
+  .site-anchor {
+    scroll-margin-top: 5.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-motion,
+  .site-motion *,
+  .site-summary > svg {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,20 @@
+Use case: ui-mockup.
+Create one polished MOBILE responsive website screen for 福利站, portrait 1024 by 1536 pixels. Edge-to-edge webpage, no phone frame, no browser chrome, no presentation labels. This is a scrollable mobile page captured in one viewport, so further content may continue below the bottom. Do not squeeze the entire desktop page onto one screen.
+
+Input image 1 is the approved-direction desktop mockup to ADAPT, not a literal screenshot to shrink. Keep its mint/cream/evergreen palette, tiny gold accents, clover brand, warm painterly white bear, and clean Chinese typography. Preserve the same content semantics and five clover-card drawing interaction. Correct any malformed small text or duplicated step number from the reference. The mock uses illustrative account values, not production data.
+
+Use one column, generous touch targets, readable dark text, and comfortable side gutters. No two-column dashboard, no horizontal overflow, no tiny desktop text. All control labels must be clear Chinese.
+
+At the top: a compact white header with clover and 福利站 on the left and a round avatar plus accessible account/menu affordance on the right. Directly under it, a compact navigation row with 小站 selected, 小游戏, 我的记录, 后台. Preserve all four labels, do not redesign games.
+
+A short welcoming hero follows. Its headline is 今天也要 lucky 一点, set over two balanced lines only if needed, with lucky in gold. Supporting text: 每天摘一片叶子，攒一点好运。 A small white bear holding a four-leaf clover sits at the right edge of the hero without interfering with text. The illustration is a soft accent; it must not dominate the mobile viewport.
+
+Below, a compact wallet row with two accurately distinguished values: 永久额度 $28.50 and 今日限时 $2.60, plus the small note 今日有效. Keep the amounts aligned and readable.
+
+Next, a compact completed check-in card. Header: 今日签到. Quiet green badges 已完成 and 连续7天. Completed message: 今天的叶子已经摘过啦. A small next-action hint: 下一步，翻开今天的好运. The calendar is COLLAPSED on mobile; show a single full-width disclosure row 查看本月签到 with a downward chevron. Do not render the 31-day grid in this mobile default view. Keep this card short.
+
+The primary action card below is 今日幸运指数, with a 可翻牌 badge. Exact instruction: 翻开一片四叶草. Supporting line: 签到已完成，今天还有一次机会. Show five evenly spaced clover cards in one row, each large enough to tap, with gentle elevation and clean outlines. No number has been revealed, so no lucky score or filled progress bar. The middle card has a subtle hover/focus outline for affordance. A small line beneath: 每天一次，偶尔也有小惊喜。 A simple 查看奖励说明 disclosure is secondary. Keep all text separated from controls.
+
+If space remains, show the next section heading 福利活动 near the bottom with a subtle continuation cue. Omit the desktop full calendar, large decorative grass clusters, and long explanatory lists from this first viewport. Do not add fixed bottom navigation, onboarding overlays, extra currencies, charts, fabricated actions, watermark, or a phone/device frame.
+
+Overall: serene and confident, with crisp medium-dark green actions and comfortable real-world mobile reading sizes. A feasible responsive version of the provided desktop design, not a miniature of it.

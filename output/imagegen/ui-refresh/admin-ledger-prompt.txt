@@ -1,0 +1,27 @@
+Use case: ui-mockup.
+Create a polished, practical desktop ADMINISTRATION page UI for the existing Chinese website 福利站. Canvas 1536 by 1024 pixels, one normal desktop viewport, straight-on webpage, no browser chrome or device frame.
+
+Input image 1 is the site's new home-page STYLE REFERENCE. Carry its mint green, warm cream, evergreen text, tiny gold accents, clover logo, elegant spacing, subtle borders, and restrained rounded surfaces into a working administration interface. This page is for operating tables and forms. Do not add the home hero, a big bear, meadow artwork, oversized calligraphy, decorative grass, or new statistics. Use crisp sans-serif text for all workspace headings and table content; reserve the small handwritten brand wordmark for the header.
+
+Header: same clover 福利站 brand at left, navigation 小站 / 小游戏 / 我的记录 / 后台 with 后台 selected. Account avatar and Lucky0401 plus 管理员 at right. Under this, a quiet compact page heading 站长后台 with supporting text 管好每一片叶子，让好运准时到账。
+
+Workspace: centered, approximately 1360 pixels wide, comfortable side gutters. Left sidebar about 200 pixels wide, right working panel fills the remaining space. The sidebar has exactly eight clear labelled items with simple line icons in this order: 仪表盘, 签到配置, 游戏设置, 抽奖设置, 活动管理, 发放流水, 用户管理, 手动发放. 发放流水 is selected with a pale mint background and darker green marker. 游戏设置 remains an ordinary navigation item; do not display or redesign game settings.
+
+Main panel:
+1. Strong compact heading 发放流水 with a small subtitle 查询到账状态，核对并处理失败记录. Right side a clearly labelled 刷新 control and secondary small 更新时间 09:45. No giant welcome banner.
+2. A well-aligned filter toolbar: one search field with placeholder 用户 ID、用户名或 new-api; 状态 dropdown displaying 全部状态; 来源 dropdown displaying 全部来源; a green 查询 button and quiet 重置 text button. No date picker, export, bulk issue, delete-all, new-grant button, or unsupported search fields.
+3. A small quiet line 共 86 条记录 and a clearly visible but restrained amber helper strip: 处理中记录请先核对到账状态，避免重复发放. The strip is explanatory, not an alarming popup.
+4. A clean, legible data table with thin horizontal separators and sticky-looking pale green header. Columns: 记录 / 用户 / 来源 / 额度 / 状态 / 重试信息 / 时间 / 操作. Combine each amount with a small 永久 or 限时 badge; user cells have a name on the first line and a smaller account identifier on the second. Do not make tiny text to fit too many columns. Error details are available through a small 展开详情 control in failed rows rather than a giant block.
+Use illustrative rows:
+- #1048, 小叶, 站内 ID 128, 签到, $2.60 with 限时 badge, 失败, 已尝试 1 次, 09-11 09:42, outlined 重试 button.
+- #1047, 幸运小熊, 站内 ID 86, 抽奖, $1.00 with 永久 badge, 已到账, a dash, 09-11 09:40, 查看.
+- #1046, new-api #204, 未关联站内用户, 手动, $5.00 with 永久 badge, 待人工确认, 已超过 10 分钟, 09-11 09:30, 查看详情. This pending record must NOT have a retry button.
+- #1045, GreenLeaf, 站内 ID 52, 活动, $5.00 with 永久 badge, 已到账, a dash, 09-11 09:26, 查看.
+- #1044, 小芽, 站内 ID 63, 游戏, $0.20 with 永久 badge, 已到账, a dash, 09-11 09:21, 查看.
+- #1043, Clover, 站内 ID 72, 签到, $1.80 with 限时 badge, 失败, 等待下次重试, 09-11 09:18, outlined 重试 button.
+The table can be a bounded scroll area, with a subtle vertical scrollbar showing that additional rows continue. Under the table, a persistent pagination footer: 每页 20 条, 第 1 / 5 页, 上一页 disabled, 下一页 enabled. Search and pagination are real existing capabilities.
+5. Under the working table, a small text note 限时额度以实际到账当日为有效期. Do not label historical temporary entries 今日有效. Keep operational copy calm, short, and actionable.
+
+Visual details: 8-pixel spacing rhythm, mostly white/ivory surfaces with readable evergreen text, clear border contrast, modest 16-24 pixel corner radii, compact 40-44 pixel controls, gold only for amount emphasis and the pending notice. Success is green; failures use a restrained existing muted red semantic color; pending uses amber. Make labels and status distinguishable without relying only on color. Avoid charts, gratuitous KPI cards, ambiguous icons, extra tabs, invented currency, illustrations inside data cells, and ornamental clutter.
+
+All text should be legible simplified Chinese matching the specified strings. No measurement annotations, watermark, collage, code, or design presentation labels. Demo values only; this is a reviewable UI direction, not production financial data.
