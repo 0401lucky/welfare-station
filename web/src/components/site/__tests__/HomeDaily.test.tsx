@@ -76,3 +76,49 @@ describe('HomeDaily 连签徽章与达标庆祝', () => {
     expect(celebrate).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('HomeDaily 签到按钮状态机', () => {
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} })))
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  /** checked 控制签到状态;deferred 让 POST /api/checkin 停在 pending,用来断言「签到中」。 */
+  function stubApi({ checked, deferred = false }: { checked: boolean; deferred?: boolean }) {
+    let resolvePost: (() => void) | null = null
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const ok = (data: unknown) => ({ status: 200, json: async () => ({ success: true, message: '', data }) })
+      if (url.startsWith('/api/checkin') && init?.method === 'POST') {
+        if (deferred) await new Promise<void>((resolve) => { resolvePost = resolve })
+        return ok({ quota: 100000, streak: 1, bonus: 0, quota_type: 'permanent', grant_status: 'success' })
+      }
+      if (url.startsWith('/api/checkin')) return ok({ today, checked_today: checked, streak: 0, calendar: checked ? [today] : [], opened: true, rules: { enabled: true, mode: 'fixed', reward_type: 'permanent', fixed_quota: 100000, min_quota: 0, max_quota: 0, streak_bonuses: bonuses, timezone: tz, available_from_minutes: 0, available_from: '00:00' } })
+      if (url.startsWith('/api/draw')) return ok({ enabled: true, drawn_today: false, today, tiers: [] })
+      throw new Error(`未处理的请求: ${url}`)
+    }))
+    return { release: () => resolvePost?.() }
+  }
+
+  it('未签到时按钮可点且提示签到', async () => {
+    stubApi({ checked: false })
+    render(<Wrapper><HomeDaily me={me} sessionReady perUnit={500000} siteName="测试站" onCelebrate={() => {}} onSessionExpired={() => {}} /></Wrapper>)
+
+    const button = await screen.findByRole('button', { name: /摘一片四叶草/ })
+    expect(button).toBeEnabled()
+    // 签到卡与翻牌卡都会显示「待签到」,这里只确认状态徽章出现过。
+    expect(screen.getAllByText('待签到').length).toBeGreaterThan(0)
+  })
+
+  it('签到请求进行中时按钮禁用并显示进行中文案', async () => {
+    const { release } = stubApi({ checked: false, deferred: true })
+    render(<Wrapper><HomeDaily me={me} sessionReady perUnit={500000} siteName="测试站" onCelebrate={() => {}} onSessionExpired={() => {}} /></Wrapper>)
+
+    fireEvent.click(await screen.findByRole('button', { name: /摘一片四叶草/ }))
+    const pending = await screen.findByRole('button', { name: /正在摘取今天的叶子/ })
+    expect(pending).toBeDisabled()
+
+    // 收尾:放行挂起的请求,避免用例结束后还有未处理的 Promise。
+    await act(async () => { release(); await new Promise((resolve) => setTimeout(resolve, 30)) })
+  })
+})
