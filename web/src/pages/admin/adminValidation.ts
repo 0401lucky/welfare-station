@@ -134,17 +134,27 @@ export function makeActivityCopyDraft(instance: number, source: AdminActivity): 
 }
 
 export const NOTICE_MAX_CHARS = 500
+export const USER_NOTE_MAX_CHARS = 500
 
 /** 按码点计数,与服务端 utf8.RuneCountInString 口径一致:一个 emoji 算一个字。 */
 export function noticeLength(text: string): number {
   return [...text.trim()].length
 }
 
-export function validateNotice(text: string): Parsed<string> {
+/** 去首尾空白后按码点限长;公告与用户备注共用同一套规则,只是上限与文案不同。 */
+export function validateBoundedText(text: string, max: number, label: string): Parsed<string> {
   const value = text.trim()
   const length = [...value].length
-  if (length > NOTICE_MAX_CHARS) return { error: `公告最多 ${NOTICE_MAX_CHARS} 字，当前 ${length} 字。` }
+  if (length > max) return { error: `${label}最多 ${max} 字，当前 ${length} 字。` }
   return { value }
+}
+
+export function validateNotice(text: string): Parsed<string> {
+  return validateBoundedText(text, NOTICE_MAX_CHARS, '公告')
+}
+
+export function validateUserNote(text: string): Parsed<string> {
+  return validateBoundedText(text, USER_NOTE_MAX_CHARS, '备注')
 }
 
 export function prepareActivity(draft: ActivityDraft): { errors: Record<string, string | undefined>; payload?: ActivityPayload } {

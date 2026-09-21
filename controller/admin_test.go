@@ -22,6 +22,8 @@ func adminRoutes(app *App) *gin.Engine {
 	api := r.Group("/api")
 	admin := api.Group("", app.Auth.RequireAdmin())
 	admin.GET("/admin/dashboard", app.AdminDashboard)
+	admin.GET("/admin/dashboard/trend", app.AdminDashboardTrend)
+	admin.GET("/admin/logs", app.AdminListLogs)
 	admin.GET("/admin/checkin-config", app.AdminGetCheckinConfig)
 	admin.PUT("/admin/checkin-config", app.AdminPutCheckinConfig)
 	admin.GET("/admin/site-notice", app.AdminGetSiteNotice)
@@ -36,9 +38,15 @@ func adminRoutes(app *App) *gin.Engine {
 	admin.POST("/admin/grants/:id/retry", app.AdminRetryGrant)
 	admin.POST("/admin/grants/manual", app.AdminManualGrant)
 	admin.GET("/admin/users", app.AdminListUsers)
+	admin.GET("/admin/users/:id", app.AdminUserDetail)
 	admin.PUT("/admin/users/:id/status", app.AdminToggleUserStatus)
+	admin.PUT("/admin/users/:id/note", app.AdminPutUserNote)
 	admin.GET("/admin/game-config", app.AdminGetGameConfig)
 	admin.PUT("/admin/game-config", app.AdminPutGameConfig)
+	admin.GET("/admin/draw-config", app.AdminGetDrawConfig)
+	admin.PUT("/admin/draw-config", app.AdminPutDrawConfig)
+	admin.GET("/admin/grant-config", app.AdminGetGrantConfig)
+	admin.PUT("/admin/grant-config", app.AdminPutGrantConfig)
 	admin.GET("/admin/budgets", app.AdminBudgets)
 	return r
 }
@@ -62,6 +70,8 @@ func TestAdminRoutesRejectNonAdmin(t *testing.T) {
 
 	routes := []struct{ method, path string }{
 		{http.MethodGet, "/api/admin/dashboard"},
+		{http.MethodGet, "/api/admin/dashboard/trend"},
+		{http.MethodGet, "/api/admin/logs"},
 		{http.MethodGet, "/api/admin/checkin-config"},
 		{http.MethodPut, "/api/admin/checkin-config"},
 		{http.MethodGet, "/api/admin/site-notice"},
@@ -76,9 +86,15 @@ func TestAdminRoutesRejectNonAdmin(t *testing.T) {
 		{http.MethodPost, "/api/admin/grants/1/retry"},
 		{http.MethodPost, "/api/admin/grants/manual"},
 		{http.MethodGet, "/api/admin/users"},
+		{http.MethodGet, "/api/admin/users/1"},
 		{http.MethodPut, "/api/admin/users/1/status"},
+		{http.MethodPut, "/api/admin/users/1/note"},
 		{http.MethodGet, "/api/admin/game-config"},
 		{http.MethodPut, "/api/admin/game-config"},
+		{http.MethodGet, "/api/admin/draw-config"},
+		{http.MethodPut, "/api/admin/draw-config"},
+		{http.MethodGet, "/api/admin/grant-config"},
+		{http.MethodPut, "/api/admin/grant-config"},
 		{http.MethodGet, "/api/admin/budgets"},
 	}
 	for _, rt := range routes {

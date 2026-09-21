@@ -37,7 +37,7 @@ func TestMigrateIdempotent(t *testing.T) {
 		t.Fatalf("second migrate should be a no-op, got: %v", err)
 	}
 	// Verify all tables exist.
-	for _, table := range []string{"w_users", "w_checkins", "w_activities", "w_claims", "w_grants", "w_settings"} {
+	for _, table := range []string{"w_users", "w_checkins", "w_activities", "w_claims", "w_grants", "w_settings", "w_admin_logs"} {
 		if !db.Migrator().HasTable(table) {
 			t.Errorf("expected table %s to exist", table)
 		}

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, Gamepad2, RefreshCw, Trash2 } from 'lucide-react'
 import { Button, Card, ConfirmDialog, Input, MoneyInput, Progress, Select, Spinner } from '@/components/ui'
 import { toast } from '@/components/Toast'
-import { api, BudgetRule, GameConfig, GameRules, GameTier, QuotaType } from '@/lib/api'
+import { api, BudgetRule, BudgetsView, GameConfig, GameRules, GameTier, QuotaType } from '@/lib/api'
 import { useSiteInfo } from '@/hooks/useMe'
 import { formatUSD } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -74,14 +74,6 @@ const BUDGET_SCOPES: { scope: string; label: string; note?: string; wired: boole
   { scope: 'checkin', label: '签到', note: '尚未接入,开了也不会生效', wired: false },
   { scope: 'activity', label: '活动', note: '尚未接入,开了也不会生效', wired: false },
 ]
-
-/** GET /api/admin/budgets 的响应;这个形状只有后台用到,不进 lib/api.ts。 */
-interface BudgetsView {
-  timezone: string
-  today: string
-  scopes: { scope: string; enabled: boolean; daily: number; used_today: number; remaining: number }[]
-  history: { date: string; used: Record<string, number> }[]
-}
 
 export default function AdminPage() {
   return <AdminRoot GamePanel={GameTab} />

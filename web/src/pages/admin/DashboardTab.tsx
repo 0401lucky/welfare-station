@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { BarChart3, CircleDollarSign, Clover, FileText, Gamepad2, Sprout, Users } from 'lucide-react'
+import { BarChart3, CircleDollarSign, Clover, FileText, Gamepad2, Sprout, TrendingUp, Users } from 'lucide-react'
 import { ActionLink, QueryFeedback, SitePanel } from '@/components/site'
 import Quota from '@/components/Quota'
-import { api, type Dashboard } from '@/lib/api'
+import { api, type BudgetsView, type Dashboard, type TrendView } from '@/lib/api'
 import { adminHref, grantSources } from './adminLedger'
+import { BudgetPanel } from './BudgetPanel'
+import { TrendChart } from './TrendChart'
 import { AdminHeading, AdminQueryFeedback, AdminRefresh, adminQueryRetry, useAdminPermissionError, type AdminPanelProps } from './adminShared'
 
 function Stat({ label, value, note }: { label: string; value: ReactNode; note?: string }) {
@@ -13,10 +15,14 @@ function Stat({ label, value, note }: { label: string; value: ReactNode; note?: 
 
 export default function DashboardTab({ adminId }: AdminPanelProps) {
   const query = useQuery({ queryKey: ['admin-dashboard', adminId], queryFn: ({ signal }) => api.get<Dashboard>('/api/admin/dashboard', { signal }), refetchOnMount: 'always', retry: adminQueryRetry })
-  const denied = useAdminPermissionError(query.error)
+  // 预算与趋势各自独立请求:任一失败只影响自己的面板,仪表盘其余部分照常显示。
+  const budgets = useQuery({ queryKey: ['admin-budgets', adminId], queryFn: ({ signal }) => api.get<BudgetsView>('/api/admin/budgets?days=7', { signal }), retry: adminQueryRetry })
+  const trend = useQuery({ queryKey: ['admin-trend', adminId], queryFn: ({ signal }) => api.get<TrendView>('/api/admin/dashboard/trend?days=7', { signal }), retry: adminQueryRetry })
+  const denied = useAdminPermissionError(query.error, budgets.error, trend.error)
   const data = query.data
-  return <div className="space-y-5" aria-busy={query.isFetching}>
-    <AdminHeading icon={BarChart3} title="仪表盘" description={data ? `统计日 ${data.today} · ${data.timezone}` : '查看参与、到账和待处理流水。'} actions={<AdminRefresh busy={query.isFetching} onClick={() => void query.refetch()} />} />
+  const refreshing = query.isFetching || budgets.isFetching || trend.isFetching
+  return <div className="space-y-5" aria-busy={refreshing}>
+    <AdminHeading icon={BarChart3} title="仪表盘" description={data ? `统计日 ${data.today} · ${data.timezone}` : '查看参与、到账和待处理流水。'} actions={<AdminRefresh busy={refreshing} onClick={() => { void query.refetch(); void budgets.refetch(); void trend.refetch() }} />} />
     <AdminQueryFeedback error={query.error} hasData={!!data} retry={() => void query.refetch()} retrying={query.isFetching} />
     {query.isPending && <QueryFeedback kind="loading" title="正在读取运营数据…" />}
     {!denied && data && <>
@@ -25,6 +31,10 @@ export default function DashboardTab({ adminId }: AdminPanelProps) {
         <Stat label="今日抽奖" value={data.today_draws} note={data.today_draws ? `中奖 ${data.today_draw_winners} 人 · ${Math.round(data.today_draw_winners / data.today_draws * 100)}%` : '今天尚无人抽奖'} />
         <Stat label="今日游戏对局" value={data.today_game_plays} note={`其中 ${data.today_game_rewards} 局获得额度`} />
         <Stat label="今日已到账" value={<Quota value={data.today_quota} />} note="仅统计成功发放的额度" />
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        {budgets.data ? <BudgetPanel scopes={budgets.data.scopes} perUnit={data.quota_per_unit} /> : <SitePanel className="p-4 sm:p-5"><h3 className="mb-3 text-base font-semibold text-clover-900">今日预算</h3>{budgets.isError ? <QueryFeedback compact kind="error" title="预算用量暂时无法读取" description={budgets.error.message} onRetry={() => void budgets.refetch()} retrying={budgets.isFetching} /> : <QueryFeedback compact kind="loading" title="正在读取预算用量…" />}</SitePanel>}
+        <SitePanel className="p-4 sm:p-5"><h3 className="mb-3 flex items-center gap-2 text-base font-semibold text-clover-900"><TrendingUp size={17} aria-hidden="true" />近 7 天趋势</h3>{trend.data ? <TrendChart days={trend.data.days} perUnit={data.quota_per_unit} /> : trend.isError ? <QueryFeedback compact kind="error" title="趋势数据暂时无法读取" description={trend.error.message} onRetry={() => void trend.refetch()} retrying={trend.isFetching} /> : <QueryFeedback compact kind="loading" title="正在读取趋势数据…" />}</SitePanel>
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
         <SitePanel className="p-4 sm:p-5"><h3 className="mb-4 flex items-center gap-2 text-base font-semibold text-clover-900"><CircleDollarSign size={17} aria-hidden="true" />今日额度来源</h3><dl className="space-y-3">{grantSources.map(source => <div key={source.value} className="flex items-center justify-between gap-3 text-sm"><dt className="text-clover-700">{source.label}</dt><dd className="break-all font-medium tabular-nums text-clover-900"><Quota value={data.today_quota_by_source?.[source.value] ?? 0} /></dd></div>)}</dl><div className="mt-4 grid grid-cols-2 gap-3 border-t border-clover-100 pt-4 text-sm"><div><p className="text-xs text-clover-700">永久额度</p><Quota value={data.today_quota_by_kind?.permanent ?? 0} className="mt-1 block font-semibold" /></div><div><p className="text-xs text-clover-700">限时额度</p><Quota value={data.today_quota_by_kind?.temporary ?? 0} className="mt-1 block font-semibold" /></div></div></SitePanel>

@@ -68,6 +68,11 @@ export interface User {
   newapi_username: string
   is_admin: boolean
   status: number
+  // 站长备注,只在后台接口出现;存量用户为空串
+  note: string
+  // 后台详情用;后端 model.User 一直都带,这里补齐类型
+  last_login_at: string | null
+  created_at: string
 }
 
 export interface SelfInfo {
@@ -189,6 +194,58 @@ export interface GrantRecord {
 export interface GrantPage extends Page<GrantRecord> {
   auto_retry_enabled: boolean
   auto_retry_max_attempts: number
+}
+
+/** 管理员操作日志(GET /api/admin/logs)。detail 是 JSON 文本,配置类动作为 {before, after}。 */
+export interface AdminLog {
+  id: number
+  admin_user_id: number
+  action: string
+  target_type: string
+  target_id: number
+  detail: string
+  ip: string
+  created_at: string
+  /** 操作者投影;操作者已被删除时为空。 */
+  admin?: AdminGrantUser | null
+}
+
+/** 近 N 天趋势(GET /api/admin/dashboard/trend),按日期升序,最后一项是今日。 */
+export interface TrendDay {
+  date: string
+  checkins: number
+  draws: number
+  plays: number
+  quota: number
+}
+
+export interface TrendView {
+  timezone: string
+  days: TrendDay[]
+}
+
+/** 用户详情(GET /api/admin/users/:id)。 */
+export interface AdminUserDetail {
+  user: User
+  recent_grants: GrantRecord[]
+  checkin: { total_days: number; streak: number }
+  game: { plays: number; quota: number }
+}
+
+/** GET /api/admin/budgets:各池上限来自配置,用量来自当日账本;未开启的池 remaining 为 0。 */
+export interface BudgetScopeView {
+  scope: string
+  enabled: boolean
+  daily: number
+  used_today: number
+  remaining: number
+}
+
+export interface BudgetsView {
+  timezone: string
+  today: string
+  scopes: BudgetScopeView[]
+  history: { date: string; used: Record<string, number> }[]
 }
 
 export interface CheckinResult {

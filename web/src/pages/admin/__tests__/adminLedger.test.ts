@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activityPhase, adminHref, adminPageInfo, grantExportUrl, grantRequestParams, grantSearchError, isStalePending, parseAdminPage, parseAdminTab, readGrantFilters } from '../adminLedger'
+import { activityPhase, adminHref, adminPageInfo, budgetTone, grantExportUrl, grantRequestParams, grantSearchError, isStalePending, parseAdminPage, parseAdminTab, readGrantFilters } from '../adminLedger'
 
 describe('admin ledger query and pagination', () => {
   it('composes actual server filters and pages beyond the former first 50 rows', () => {
@@ -35,8 +35,20 @@ describe('admin ledger query and pagination', () => {
 
   it('retains all valid admin sections and concrete ledger destinations', () => {
     expect(parseAdminTab('game')).toBe('game')
+    expect(parseAdminTab('logs')).toBe('logs')
     expect(parseAdminTab('not-a-tab')).toBe('dashboard')
     expect(adminHref('grants', { type: 'manual', search: 123, record: 8 })).toBe('/admin?tab=grants&type=manual&search=123&record=8')
+  })
+
+  it('预算配色:79% 正常、80% 提醒、100% 及以上用尽,不限额始终正常', () => {
+    expect(budgetTone(79, 100)).toBe('ok')
+    expect(budgetTone(80, 100)).toBe('warn')
+    expect(budgetTone(99, 100)).toBe('warn')
+    expect(budgetTone(100, 100)).toBe('full')
+    expect(budgetTone(120, 100)).toBe('full')
+    expect(budgetTone(4, 5)).toBe('warn')
+    expect(budgetTone(999, 0)).toBe('ok')
+    expect(budgetTone(0, 0)).toBe('ok')
   })
 
   it('marks old pending only as requiring reconciliation, never changes its status', () => {

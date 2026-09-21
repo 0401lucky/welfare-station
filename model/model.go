@@ -13,18 +13,37 @@ type User struct {
 	LinuxDOName string `gorm:"type:varchar(64);not null" json:"linux_do_name"`
 	DisplayName string `gorm:"type:varchar(64)" json:"display_name"`
 	// AvatarURL 为 LinuxDO 头像外链(归一化后),存量行为空串,前端需自行兜底。
-	AvatarURL      string     `gorm:"type:varchar(255)" json:"avatar_url"`
-	TrustLevel     int        `gorm:"not null;default:0" json:"trust_level"`
-	NewapiUserID   *int64     `gorm:"uniqueIndex" json:"newapi_user_id"` // NULL = not bound
-	NewapiUsername string     `gorm:"type:varchar(64)" json:"newapi_username"`
-	IsAdmin        bool       `gorm:"not null;default:false" json:"is_admin"`
-	Status         int        `gorm:"not null;default:1" json:"status"` // 1 normal / 2 banned (station-side)
-	LastLoginAt    *time.Time `json:"last_login_at"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	AvatarURL      string `gorm:"type:varchar(255)" json:"avatar_url"`
+	TrustLevel     int    `gorm:"not null;default:0" json:"trust_level"`
+	NewapiUserID   *int64 `gorm:"uniqueIndex" json:"newapi_user_id"` // NULL = not bound
+	NewapiUsername string `gorm:"type:varchar(64)" json:"newapi_username"`
+	IsAdmin        bool   `gorm:"not null;default:false" json:"is_admin"`
+	Status         int    `gorm:"not null;default:1" json:"status"` // 1 normal / 2 banned (station-side)
+	// Note 是站长给用户写的备注,只在后台可见;存量行 AutoMigrate 后为空串。
+	Note        string     `gorm:"type:varchar(500);not null;default:''" json:"note"`
+	LastLoginAt *time.Time `json:"last_login_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 func (User) TableName() string { return "w_users" }
+
+// AdminLog 是一条管理员操作审计记录(w_admin_logs)。
+//
+// 只追加不修改:每个后台写接口成功后记一行,Detail 是与该动作相关的 JSON 快照
+// (配置类存变更前后),超长会被 service.RecordAudit 截断。写入失败不阻断主流程。
+type AdminLog struct {
+	ID          int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	AdminUserID int64     `gorm:"not null;index" json:"admin_user_id"`
+	Action      string    `gorm:"type:varchar(32);not null;index" json:"action"`
+	TargetType  string    `gorm:"type:varchar(16);not null" json:"target_type"`
+	TargetID    int64     `gorm:"not null;default:0" json:"target_id"`
+	Detail      string    `gorm:"type:text" json:"detail"`
+	IP          string    `gorm:"type:varchar(64)" json:"ip"`
+	CreatedAt   time.Time `gorm:"index" json:"created_at"`
+}
+
+func (AdminLog) TableName() string { return "w_admin_logs" }
 
 // Checkin records one successful daily check-in (w_checkins).
 // uk_user_date (user_id, checkin_date) is the idempotency root.
@@ -194,5 +213,6 @@ func AllModels() []any {
 		&GamePlay{},
 		&Draw{},
 		&DailyBudget{},
+		&AdminLog{},
 	}
 }

@@ -1,6 +1,6 @@
 import type { AdminActivity, GrantRecord } from '@/lib/api'
 
-export const adminTabs = ['dashboard', 'config', 'game', 'draw', 'activities', 'grants', 'users', 'manual'] as const
+export const adminTabs = ['dashboard', 'config', 'game', 'draw', 'activities', 'grants', 'users', 'logs', 'manual'] as const
 export type AdminTab = typeof adminTabs[number]
 export const grantSources = [
   { value: 'checkin', label: '签到' }, { value: 'draw', label: '抽奖' },
@@ -99,3 +99,16 @@ export function activityPhase(activity: Pick<AdminActivity, 'status' | 'start_at
   if (Number.isFinite(start) && start > now) return 'upcoming'
   return 'live'
 }
+
+export type BudgetTone = 'ok' | 'warn' | 'full'
+
+/** 预算进度配色:limit 不为正视为不限额;用量达到 80% 提醒,达到 100% 即用尽。整数比较,避开浮点误差。 */
+export function budgetTone(used: number, limit: number): BudgetTone {
+  if (!(limit > 0)) return 'ok'
+  if (used >= limit) return 'full'
+  if (used * 5 >= limit * 4) return 'warn'
+  return 'ok'
+}
+
+/** 预算池展示名与顺序,与后端 service.BudgetScopes 对齐;签到 / 活动两池尚未接入发放链路。 */
+export const budgetScopeLabels: Record<string, string> = { total: '全站总池', game: '小游戏', draw: '幸运抽奖', checkin: '签到', activity: '活动' }

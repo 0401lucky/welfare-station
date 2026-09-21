@@ -59,6 +59,8 @@ func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
 	// ---- M7: admin (RequireAdmin) ----
 	admin := api.Group("", app.Auth.RequireAdmin())
 	admin.GET("/admin/dashboard", app.AdminDashboard)
+	admin.GET("/admin/dashboard/trend", app.AdminDashboardTrend)
+	admin.GET("/admin/logs", app.AdminListLogs)
 	admin.GET("/admin/checkin-config", app.AdminGetCheckinConfig)
 	admin.PUT("/admin/checkin-config", app.AdminPutCheckinConfig)
 	admin.GET("/admin/site-notice", app.AdminGetSiteNotice)
@@ -73,7 +75,9 @@ func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
 	admin.POST("/admin/grants/:id/retry", app.AdminRetryGrant)
 	admin.POST("/admin/grants/manual", app.AdminManualGrant)
 	admin.GET("/admin/users", app.AdminListUsers)
+	admin.GET("/admin/users/:id", app.AdminUserDetail)
 	admin.PUT("/admin/users/:id/status", app.AdminToggleUserStatus)
+	admin.PUT("/admin/users/:id/note", app.AdminPutUserNote)
 	admin.GET("/admin/game-config", app.AdminGetGameConfig)
 	admin.PUT("/admin/game-config", app.AdminPutGameConfig)
 	admin.GET("/admin/draw-config", app.AdminGetDrawConfig)

@@ -8,6 +8,7 @@ import { toast } from '@/components/Toast'
 import { api, type Page, type User } from '@/lib/api'
 import { getPageRange } from '@/lib/pagination'
 import { readUserFilters, userBoundOptions, userRequestParams, userStatusOptions, writeUserParams, type UserFilters } from './adminUsers'
+import UserDetailDialog from './UserDetailDialog'
 import { AdminHeading, AdminQueryFeedback, AdminRefresh, adminQueryRetry, useAdminPermissionError, type AdminPanelProps } from './adminShared'
 
 export default function UsersTab({ adminId }: AdminPanelProps) {
@@ -17,6 +18,7 @@ export default function UsersTab({ adminId }: AdminPanelProps) {
   const requestKey = userRequestParams(filters).toString()
   const [draft, setDraft] = useState({ keyword: filters.keyword, bound: filters.bound, status: filters.status })
   const [target, setTarget] = useState<User | null>(null)
+  const [viewing, setViewing] = useState<User | null>(null)
   const [result, setResult] = useState<{ title: string; description?: string; error: boolean } | null>(null)
   const lock = useRef(false)
   const query = useQuery({
@@ -98,7 +100,7 @@ export default function UsersTab({ adminId }: AdminPanelProps) {
         <div key="newapi" className="min-w-32 max-w-56 break-words text-xs leading-5 text-clover-700">{user.newapi_user_id ? <><p>{user.newapi_username || '已绑定账号'}</p><p>#{user.newapi_user_id}</p></> : '尚未绑定'}</div>,
         <div key="role" className="whitespace-nowrap text-xs leading-5 text-clover-700">信任等级 {user.trust_level}<p>{user.is_admin ? '管理员' : '普通用户'}</p></div>,
         <Badge key="status" className={user.status === 1 ? 'border border-clover-200 bg-clover-50 text-clover-800' : 'border border-destructive/20 bg-destructive/5 text-destructive'}>{user.status === 1 ? '正常' : user.status === 2 ? '已封禁' : `状态 ${user.status}`}</Badge>,
-        <Button key="action" type="button" size="sm" variant={user.status === 1 ? 'outline' : 'default'} className="relative min-h-11 whitespace-nowrap" disabled={busy || query.isError || transition || ![1, 2].includes(user.status)} onClick={() => { setResult(null); setTarget(user) }}>{toggle.isPending && toggle.variables?.user.id === user.id && <Spinner size={14} />}{toggle.isPending && toggle.variables?.user.id === user.id ? '正在更新…' : user.status === 1 ? '封禁' : '解封'}<span className="sr-only">站内用户 #{user.id}</span></Button>,
+        <div key="action" className="flex flex-wrap gap-1.5"><Button type="button" size="sm" variant="outline" className="relative min-h-11 whitespace-nowrap" onClick={() => setViewing(user)}>详情<span className="sr-only"> 站内用户 #{user.id}</span></Button><Button type="button" size="sm" variant={user.status === 1 ? 'outline' : 'default'} className="relative min-h-11 whitespace-nowrap" disabled={busy || query.isError || transition || ![1, 2].includes(user.status)} onClick={() => { setResult(null); setTarget(user) }}>{toggle.isPending && toggle.variables?.user.id === user.id && <Spinner size={14} />}{toggle.isPending && toggle.variables?.user.id === user.id ? '正在更新…' : user.status === 1 ? '封禁' : '解封'}<span className="sr-only">站内用户 #{user.id}</span></Button></div>,
       ])} />}
       <nav aria-label="用户分页" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-clover-100 px-3 py-3">
         <span className="text-sm tabular-nums text-clover-800">第 {data.page} / {range.totalPages} 页 · 每页 {data.page_size} 人</span>
@@ -110,5 +112,6 @@ export default function UsersTab({ adminId }: AdminPanelProps) {
       lock.current = true
       toggle.mutate({ user: target, status: target.status === 1 ? 2 : 1 })
     }} />
+    <UserDetailDialog adminId={adminId} user={viewing} open={!denied && !!viewing} onClose={() => setViewing(null)} />
   </SitePanel>
 }

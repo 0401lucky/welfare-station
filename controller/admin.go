@@ -7,14 +7,21 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"welfare/common"
+	"welfare/middleware"
 	"welfare/model"
 	"welfare/service"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+// audit 在后台写接口成功后记一条审计日志;操作者与 IP 从当前请求取。
+func (a *App) audit(c *gin.Context, action, targetType string, targetID int64, detail any) {
+	service.RecordAudit(a.DB, middleware.CurrentUser(c), action, targetType, targetID, detail, c.ClientIP())
+}
 
 // AdminGrantUser 是后台流水中关联的福利站用户投影。
 // 流水仍保留原有顶层 user_id/newapi_user_id 字段，user 仅补充可读的用户资料。
@@ -196,10 +203,12 @@ func (a *App) AdminPutCheckinConfig(c *gin.Context) {
 		common.BadRequest(c, "JSON 格式错误")
 		return
 	}
+	before, _ := service.GetCheckinConfig(a.DB)
 	if err := service.SaveCheckinConfig(a.DB, &body); err != nil {
 		common.BadRequest(c, err.Error())
 		return
 	}
+	a.audit(c, service.AuditPutCheckinConfig, service.AuditTargetSetting, 0, service.AuditDiff{Before: before, After: body})
 	common.Ok(c, body)
 }
 
@@ -216,12 +225,13 @@ func (a *App) AdminPutSiteNotice(c *gin.Context) {
 		common.BadRequest(c, "JSON 格式错误")
 		return
 	}
+	before := service.GetSiteNotice(a.DB)
 	saved, err := service.PutSiteNotice(a.DB, body.Notice)
 	if err != nil {
 		common.BadRequest(c, err.Error())
 		return
 	}
-	// TODO(audit): admin-insights 落地后在此记录审计日志(action=site_notice.update)。
+	a.audit(c, service.AuditPutSiteNotice, service.AuditTargetSetting, 0, service.AuditDiff{Before: before, After: saved})
 	common.Ok(c, gin.H{"notice": saved})
 }
 
@@ -294,6 +304,7 @@ func (a *App) AdminCreateActivity(c *gin.Context) {
 		common.InternalError(c, "创建活动失败")
 		return
 	}
+	a.audit(c, service.AuditCreateActivity, service.AuditTargetActivity, a2.ID, a2)
 	common.Ok(c, a2)
 }
 
@@ -370,6 +381,8 @@ func (a *App) AdminUpdateActivity(c *gin.Context) {
 		EndAt:         endAt,
 		Status:        body.Status,
 	}
+	// before 必须在 Updates 之前拷贝:gorm 会把新值写回 act,取晚了快照与 after 相同。
+	before := act
 	if err := a.DB.Model(&act).
 		Select("title", "description", "quota", "total_count", "per_user_limit", "min_trust_level", "start_at", "end_at", "status").
 		Updates(updates).Error; err != nil {
@@ -377,6 +390,7 @@ func (a *App) AdminUpdateActivity(c *gin.Context) {
 		return
 	}
 	a.DB.First(&act, id)
+	a.audit(c, service.AuditUpdateActivity, service.AuditTargetActivity, act.ID, service.AuditDiff{Before: before, After: act})
 	common.Ok(c, act)
 }
 
@@ -386,9 +400,15 @@ func (a *App) AdminDeleteActivity(c *gin.Context) {
 		common.BadRequest(c, "无效的活动 ID")
 		return
 	}
+	// 先读一份留作审计快照;不存在时保持原有语义(删除幂等,照常返回 deleted)。
+	var before model.Activity
+	found := a.DB.First(&before, id).Error == nil
 	if err := a.DB.Delete(&model.Activity{}, id).Error; err != nil {
 		common.InternalError(c, "删除活动失败")
 		return
+	}
+	if found {
+		a.audit(c, service.AuditDeleteActivity, service.AuditTargetActivity, id, before)
 	}
 	common.Ok(c, gin.H{"deleted": true})
 }
@@ -479,14 +499,7 @@ func (a *App) AdminListGrants(c *gin.Context) {
 	for _, grant := range grants {
 		item := AdminGrantItem{Grant: grant}
 		if user, ok := usersByID[grant.UserID]; ok {
-			item.User = &AdminGrantUser{
-				ID:             user.ID,
-				LinuxDOID:      user.LinuxDOID,
-				LinuxDOName:    user.LinuxDOName,
-				DisplayName:    user.DisplayName,
-				NewapiUserID:   user.NewapiUserID,
-				NewapiUsername: user.NewapiUsername,
-			}
+			item.User = projectAdminUser(user)
 		}
 		items = append(items, item)
 	}
@@ -499,33 +512,51 @@ func (a *App) AdminListGrants(c *gin.Context) {
 // loadGrantUsers 按本页流水去重后批量读取关联用户,避免逐条查询造成 N+1;
 // 用户被删除时流水照常返回,调用方按「查不到」处理。
 func (a *App) loadGrantUsers(grants []model.Grant) (map[int64]model.User, error) {
-	usersByID := make(map[int64]model.User, len(grants))
-	if len(grants) == 0 {
-		return usersByID, nil
-	}
 	ids := make([]int64, 0, len(grants))
-	seen := make(map[int64]struct{}, len(grants))
 	for _, grant := range grants {
-		if grant.UserID == 0 {
-			continue
-		}
-		if _, ok := seen[grant.UserID]; ok {
-			continue
-		}
-		seen[grant.UserID] = struct{}{}
 		ids = append(ids, grant.UserID)
 	}
-	if len(ids) == 0 {
+	return a.loadUsersByIDs(ids)
+}
+
+// loadUsersByIDs 去重后一次查出全部用户;0 与重复 ID 会被跳过,查不到的 ID 不在结果里。
+func (a *App) loadUsersByIDs(ids []int64) (map[int64]model.User, error) {
+	usersByID := make(map[int64]model.User, len(ids))
+	unique := make([]int64, 0, len(ids))
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	if len(unique) == 0 {
 		return usersByID, nil
 	}
 	var users []model.User
-	if err := a.DB.Where("id IN ?", ids).Find(&users).Error; err != nil {
+	if err := a.DB.Where("id IN ?", unique).Find(&users).Error; err != nil {
 		return nil, err
 	}
 	for _, user := range users {
 		usersByID[user.ID] = user
 	}
 	return usersByID, nil
+}
+
+// projectAdminUser 把用户行裁成后台列表用的身份投影。
+func projectAdminUser(user model.User) *AdminGrantUser {
+	return &AdminGrantUser{
+		ID:             user.ID,
+		LinuxDOID:      user.LinuxDOID,
+		LinuxDOName:    user.LinuxDOName,
+		DisplayName:    user.DisplayName,
+		NewapiUserID:   user.NewapiUserID,
+		NewapiUsername: user.NewapiUsername,
+	}
 }
 
 // adminGrantsExportMax 是单次导出的行数上限:导出是为了对账,不是备份数据库。
@@ -610,6 +641,7 @@ func (a *App) AdminRetryGrant(c *gin.Context) {
 		// A failed retry still reports friendly data with the updated grant.
 		var g model.Grant
 		if err2 := a.DB.First(&g, id).Error; err2 == nil {
+			a.audit(c, service.AuditRetryGrant, service.AuditTargetGrant, g.ID, gin.H{"status": g.Status, "error": g.Error, "quota": g.Quota})
 			common.FailData(c, http.StatusOK, "重试发放仍失败,请检查 new-api", g)
 			return
 		}
@@ -618,6 +650,7 @@ func (a *App) AdminRetryGrant(c *gin.Context) {
 	}
 	var g model.Grant
 	a.DB.First(&g, id)
+	a.audit(c, service.AuditRetryGrant, service.AuditTargetGrant, g.ID, gin.H{"status": g.Status, "quota": g.Quota, "newapi_user_id": g.NewapiUserID})
 	common.Ok(c, g)
 }
 
@@ -681,6 +714,10 @@ func (a *App) AdminManualGrant(c *gin.Context) {
 		common.InternalError(c, "发放失败:"+err.Error())
 		return
 	}
+	// 流水已落库,无论外呼成败都记审计;失败的那笔同样是站长发起的动作。
+	a.audit(c, service.AuditManualGrant, service.AuditTargetGrant, grant.ID, gin.H{
+		"user_id": grant.UserID, "newapi_user_id": grant.NewapiUserID, "quota": grant.Quota, "status": grant.Status, "remark": body.Remark,
+	})
 	if grant.Status == service.GrantStatusFailed {
 		common.FailData(c, http.StatusOK, "发放到 new-api 失败,流水已记录可重试", grant)
 		return
@@ -754,7 +791,152 @@ func (a *App) AdminToggleUserStatus(c *gin.Context) {
 		common.Fail(c, http.StatusNotFound, "用户不存在")
 		return
 	}
+	action := service.AuditUnbanUser
+	if body.Status == 2 {
+		action = service.AuditBanUser
+	}
+	a.audit(c, action, service.AuditTargetUser, id, gin.H{"status": body.Status})
 	common.Ok(c, gin.H{"id": id, "status": body.Status})
+}
+
+// GET /api/admin/users/:id — 用户详情:资料 + 最近 20 条流水 + 签到与游戏统计。
+func (a *App) AdminUserDetail(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		common.BadRequest(c, "无效的用户 ID")
+		return
+	}
+	var user model.User
+	if err := a.DB.First(&user, id).Error; err != nil {
+		common.Fail(c, http.StatusNotFound, "用户不存在")
+		return
+	}
+	var recent []model.Grant
+	if err := a.DB.Where("user_id = ?", id).Order("id desc").Limit(20).Find(&recent).Error; err != nil {
+		common.InternalError(c, "读取用户流水失败")
+		return
+	}
+	var checkinDays, plays, gameQuota int64
+	a.DB.Model(&model.Checkin{}).Where("user_id = ?", id).Count(&checkinDays)
+	a.DB.Model(&model.GamePlay{}).Where("user_id = ?", id).Count(&plays)
+	a.DB.Model(&model.GamePlay{}).Where("user_id = ?", id).Select("COALESCE(SUM(quota), 0)").Scan(&gameQuota)
+	streak, err := service.CurrentStreak(a.DB, id, a.checkinTimezone(), time.Now())
+	if err != nil {
+		common.InternalError(c, "读取签到统计失败")
+		return
+	}
+	common.Ok(c, gin.H{
+		"user":          user,
+		"recent_grants": recent,
+		"checkin":       gin.H{"total_days": checkinDays, "streak": streak},
+		"game":          gin.H{"plays": plays, "quota": gameQuota},
+	})
+}
+
+// userNoteMaxRunes 与 model.User.Note 的列宽一致,按字符数计。
+const userNoteMaxRunes = 500
+
+// PUT /api/admin/users/:id/note — 站长备注,只在后台可见。
+func (a *App) AdminPutUserNote(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		common.BadRequest(c, "无效的用户 ID")
+		return
+	}
+	var body struct {
+		Note string `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		common.BadRequest(c, "JSON 格式错误")
+		return
+	}
+	note := strings.TrimSpace(body.Note)
+	if n := utf8.RuneCountInString(note); n > userNoteMaxRunes {
+		common.BadRequest(c, "备注不能超过 "+strconv.Itoa(userNoteMaxRunes)+" 字,当前 "+strconv.Itoa(n)+" 字")
+		return
+	}
+	var user model.User
+	if err := a.DB.First(&user, id).Error; err != nil {
+		common.Fail(c, http.StatusNotFound, "用户不存在")
+		return
+	}
+	before := user.Note
+	if err := a.DB.Model(&user).Update("note", note).Error; err != nil {
+		common.InternalError(c, "保存备注失败")
+		return
+	}
+	a.audit(c, service.AuditPutUserNote, service.AuditTargetUser, id, service.AuditDiff{Before: before, After: note})
+	common.Ok(c, gin.H{"id": id, "note": note})
+}
+
+// AdminLogItem 是一条审计日志加操作者投影;操作者已被删除时 admin 为空。
+type AdminLogItem struct {
+	model.AdminLog
+	Admin *AdminGrantUser `json:"admin,omitempty"`
+}
+
+// GET /api/admin/logs — 管理员操作日志,按动作 / 操作者筛选,分页。
+func (a *App) AdminListLogs(c *gin.Context) {
+	q := a.DB.Model(&model.AdminLog{})
+	if action := c.Query("action"); action != "" {
+		if !service.IsAuditAction(action) {
+			common.BadRequest(c, "未知的动作类型")
+			return
+		}
+		q = q.Where("action = ?", action)
+	}
+	if raw := c.Query("admin_id"); raw != "" {
+		adminID, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || adminID <= 0 {
+			common.BadRequest(c, "admin_id 需为正整数")
+			return
+		}
+		q = q.Where("admin_user_id = ?", adminID)
+	}
+	page, pageSize := adminPageParams(c)
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		common.InternalError(c, "读取操作日志失败")
+		return
+	}
+	var logs []model.AdminLog
+	if err := q.Order("id desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&logs).Error; err != nil {
+		common.InternalError(c, "读取操作日志失败")
+		return
+	}
+	ids := make([]int64, 0, len(logs))
+	for _, l := range logs {
+		ids = append(ids, l.AdminUserID)
+	}
+	usersByID, err := a.loadUsersByIDs(ids)
+	if err != nil {
+		common.InternalError(c, "读取操作者失败")
+		return
+	}
+	items := make([]AdminLogItem, 0, len(logs))
+	for _, l := range logs {
+		item := AdminLogItem{AdminLog: l}
+		if u, ok := usersByID[l.AdminUserID]; ok {
+			item.Admin = projectAdminUser(u)
+		}
+		items = append(items, item)
+	}
+	common.Ok(c, gin.H{"total": total, "page": page, "page_size": pageSize, "items": items})
+}
+
+// GET /api/admin/dashboard/trend?days=7 — 近 N 天参与与到账趋势(上限 30 天)。
+func (a *App) AdminDashboardTrend(c *gin.Context) {
+	days, convErr := strconv.Atoi(c.DefaultQuery("days", "7"))
+	if convErr != nil || days < 1 {
+		days = 7
+	}
+	tz := a.checkinTimezone()
+	trend, err := service.DashboardTrend(a.DB, tz, days, time.Now())
+	if err != nil {
+		common.InternalError(c, "读取趋势数据失败")
+		return
+	}
+	common.Ok(c, gin.H{"timezone": tz, "days": trend})
 }
 
 // GET/PUT /api/admin/game-config — 读/写游戏注册表与预算池配置(R4.2 / R4.3)。
@@ -775,10 +957,12 @@ func (a *App) AdminPutGameConfig(c *gin.Context) {
 	}
 	// 校验与归一化(档位按 tile 升序、时区回落、reward_type 兜底)全在
 	// SaveGameConfig 里就地完成,这里不重复实现,失败信息原样透出给站长。
+	before, _ := service.GetGameConfig(a.DB)
 	if err := service.SaveGameConfig(a.DB, &body, service.MaxGrantQuotaOf(a.DB, a.Config.MaxGrantQuota)); err != nil {
 		common.BadRequest(c, err.Error())
 		return
 	}
+	a.audit(c, service.AuditPutGameConfig, service.AuditTargetSetting, 0, service.AuditDiff{Before: before, After: body})
 	// 回的是归一化之后的 body,前端拿到的就是落库的那一份。
 	common.Ok(c, body)
 }
@@ -802,10 +986,13 @@ func (a *App) AdminPutDrawConfig(c *gin.Context) {
 	}
 	// 校验与归一化(档位按 roll_min 升序、区间必须铺满 1~100、时区回落、金额上限)
 	// 全在 SaveDrawConfig 里就地完成,失败信息原样透出给站长。
-	if err := service.SaveDrawConfig(a.DB, &body, service.MaxGrantQuotaOf(a.DB, a.Config.MaxGrantQuota)); err != nil {
+	maxGrant := service.MaxGrantQuotaOf(a.DB, a.Config.MaxGrantQuota)
+	before, _ := service.GetDrawConfig(a.DB, maxGrant)
+	if err := service.SaveDrawConfig(a.DB, &body, maxGrant); err != nil {
 		common.BadRequest(c, err.Error())
 		return
 	}
+	a.audit(c, service.AuditPutDrawConfig, service.AuditTargetSetting, 0, service.AuditDiff{Before: before, After: body})
 	// 回的是归一化之后的 body,前端拿到的就是落库的那一份。
 	common.Ok(c, body)
 }
@@ -829,10 +1016,12 @@ func (a *App) AdminPutGrantConfig(c *gin.Context) {
 		common.BadRequest(c, "JSON 格式错误")
 		return
 	}
+	before, _ := service.GetGrantConfig(a.DB, a.Config.MaxGrantQuota)
 	if err := service.SaveGrantConfig(a.DB, &body); err != nil {
 		common.BadRequest(c, err.Error())
 		return
 	}
+	a.audit(c, service.AuditPutGrantConfig, service.AuditTargetSetting, 0, service.AuditDiff{Before: before, After: body})
 	common.Ok(c, body)
 }
 
