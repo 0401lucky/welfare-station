@@ -470,3 +470,62 @@ func mustLoad(t *testing.T, tz string) *time.Location {
 	}
 	return loc
 }
+
+// TestSuccessfulTemporaryGrantsTodayFollowsConfiguredTimezone 验证对账窗口的日界
+// 跟随签到配置时区,不再硬编码北京时间;空值与非法值回退默认时区。
+func TestSuccessfulTemporaryGrantsTodayFollowsConfiguredTimezone(t *testing.T) {
+	_, mock, db := setupGrantService(t)
+	defer mock.Close()
+	user := model.User{LinuxDOID: "tz-user", LinuxDOName: "tz", TrustLevel: 2, Status: 1, NewapiUserID: int64Ptr(42)}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	// now 取 2026-08-19 01:00 UTC:北京时间已是 08-19 09:00,纽约(EDT)还在 08-18 21:00。
+	now := time.Date(2026, 8, 19, 1, 0, 0, 0, time.UTC)
+	seed := func(quota int64, updatedAt time.Time) {
+		g := model.Grant{
+			UserID: user.ID, NewapiUserID: 42, Type: "manual", RefID: NewManualRefID(),
+			Quota: quota, QuotaType: QuotaTypeTemporary, Status: GrantStatusSuccess,
+		}
+		if err := db.Create(&g).Error; err != nil {
+			t.Fatalf("create grant: %v", err)
+		}
+		if err := db.Model(&g).UpdateColumn("updated_at", updatedAt).Error; err != nil {
+			t.Fatalf("set updated_at: %v", err)
+		}
+	}
+	seed(100, time.Date(2026, 8, 18, 10, 0, 0, 0, time.UTC)) // 只落在纽约的 08-18
+	seed(20, time.Date(2026, 8, 19, 10, 0, 0, 0, time.UTC))  // 只落在北京的 08-19
+
+	cases := []struct {
+		tz   string
+		want int64
+	}{
+		{"Asia/Shanghai", 20},
+		{"America/New_York", 100},
+		{"", 20},             // 空值回退 DefaultTimezone
+		{"Mars/Olympus", 20}, // 非法值回退 DefaultTimezone
+	}
+	for _, tc := range cases {
+		got, err := successfulTemporaryGrantsToday(db, user.ID, 42, now, tc.tz)
+		if err != nil {
+			t.Fatalf("%q: %v", tc.tz, err)
+		}
+		if got != tc.want {
+			t.Errorf("%q: total = %d, want %d", tc.tz, got, tc.want)
+		}
+	}
+}
+
+// TestLoadLocationOrFallsBackToDefault 验证时区回退只落到默认时区,不落到 UTC。
+func TestLoadLocationOrFallsBackToDefault(t *testing.T) {
+	if got := LoadLocationOr("America/New_York").String(); got != "America/New_York" {
+		t.Errorf("合法时区应原样加载, got %s", got)
+	}
+	for _, tz := range []string{"", "Mars/Olympus"} {
+		if got := LoadLocationOr(tz).String(); got != DefaultTimezone {
+			t.Errorf("%q 应回退到 %s, got %s", tz, DefaultTimezone, got)
+		}
+	}
+}

@@ -72,7 +72,7 @@ func (a *App) OAuthCallback(c *gin.Context) {
 		return
 	}
 
-	token, err := a.Sessions.Sign(user.ID, user.IsAdmin)
+	token, err := a.Sessions.Sign(user.ID)
 	if err != nil {
 		log.Printf("oauth: sign token failed: %v", err)
 		common.InternalError(c, "登录失败")

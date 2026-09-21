@@ -68,7 +68,7 @@ func checkinUser(t *testing.T, app *App) *http.Cookie {
 	if err := app.DB.Create(&u).Error; err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	return sessionCookie(t, app, u.ID, false)
+	return sessionCookie(t, app, u.ID)
 }
 
 func int64p(i int64) *int64 { return &i }

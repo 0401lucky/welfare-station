@@ -15,9 +15,11 @@ const (
 )
 
 // Claims is the JWT payload embedded in the session cookie.
+//
+// 只放用户 id,不放 is_admin:管理员身份一律由 RequireAdmin 查库判定,白名单变更
+// 立即生效。旧版 token 多出的 is_admin 字段会被 ParseWithClaims 忽略,继续可用。
 type Claims struct {
-	UserID  int64 `json:"uid"`
-	IsAdmin bool  `json:"is_admin"`
+	UserID int64 `json:"uid"`
 	jwt.RegisteredClaims
 }
 
@@ -31,11 +33,10 @@ func NewSessionManager(secret string, secure bool) *SessionManager {
 	return &SessionManager{secret: []byte(secret), secure: secure}
 }
 
-func (m *SessionManager) Sign(userID int64, isAdmin bool) (string, error) {
+func (m *SessionManager) Sign(userID int64) (string, error) {
 	now := time.Now()
 	claims := Claims{
-		UserID:  userID,
-		IsAdmin: isAdmin,
+		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(sessionTTL)),

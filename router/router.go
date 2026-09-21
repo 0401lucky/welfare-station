@@ -15,6 +15,10 @@ import (
 // they land (M3 OAuth/login, M5 checkin, M6 activities, M7 admin).
 func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
 	app := controller.NewApp(db, cfg)
+
+	// 存活探针挂在根路径:不进 /api 组,不经限流,也不会被 SPA 兜底吞掉。
+	r.GET("/healthz", app.Health)
+
 	api := r.Group("/api")
 
 	// ---- Public ----

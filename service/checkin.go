@@ -98,20 +98,17 @@ func hasSuccessfulTemporaryDrawGrantToday(db *gorm.DB, userID, newapiUserID int6
 	return true, nil
 }
 
-// successfulTemporaryGrantsToday 返回福利站在 new-api 北京时间当天已经确认成功
-// 的所有限时额度流水总和。这里只统计 success，故外呼超时后本地 failed/pending
-// 的金额不会被猜作已到账，避免兼容分支扩大双发窗口。
-func successfulTemporaryGrantsToday(db *gorm.DB, userID, newapiUserID int64, now time.Time) (int64, error) {
-	loc, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		loc = time.FixedZone("Asia/Shanghai", 8*60*60)
-	}
+// successfulTemporaryGrantsToday 返回福利站在签到配置时区当天已经确认成功的所有
+// 限时额度流水总和,日界与 today(TodayStr)口径一致。这里只统计 success，故外呼
+// 超时后本地 failed/pending 的金额不会被猜作已到账，避免兼容分支扩大双发窗口。
+func successfulTemporaryGrantsToday(db *gorm.DB, userID, newapiUserID int64, now time.Time, tz string) (int64, error) {
+	loc := LoadLocationOr(tz)
 	local := now.In(loc)
 	start := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
 	end := start.AddDate(0, 0, 1)
 
 	var total int64
-	err = db.Model(&model.Grant{}).
+	err := db.Model(&model.Grant{}).
 		Where(
 			"user_id = ? AND newapi_user_id = ? AND quota_type = ? AND status = ? AND updated_at >= ? AND updated_at < ?",
 			userID, newapiUserID, QuotaTypeTemporary, GrantStatusSuccess, start, end,
@@ -240,7 +237,7 @@ func DoCheckin(db *gorm.DB, grants *GrantService, cfg *CheckinConfig, user *mode
 				}
 				if reconciled {
 					var localTotal int64
-					localTotal, err = successfulTemporaryGrantsToday(db, user.ID, *user.NewapiUserID, now)
+					localTotal, err = successfulTemporaryGrantsToday(db, user.ID, *user.NewapiUserID, now, cfg.Timezone)
 					if err != nil {
 						return nil, err
 					}

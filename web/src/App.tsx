@@ -6,6 +6,7 @@ import RecordsPage from '@/pages/RecordsPage'
 import GamePage from '@/pages/GamePage'
 import ArcadePage from '@/pages/ArcadePage'
 import WatermelonPage from '@/pages/WatermelonPage'
+import NotFoundPage from '@/pages/NotFoundPage'
 import { Toaster } from '@/components/Toast'
 import { Spinner } from '@/components/ui'
 
@@ -24,7 +25,7 @@ export default function App() {
           <Route path="/game/watermelon" element={<WatermelonPage />} />
           <Route path="/game/:gameId" element={<Navigate to="/game" replace />} />
           <Route path="/admin" element={<AdminPage />} />
-          <Route path="*" element={<HomePage />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Suspense>
       <Toaster />

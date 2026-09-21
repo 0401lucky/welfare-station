@@ -108,9 +108,9 @@ func route(app *App) *gin.Engine {
 	return r
 }
 
-func sessionCookie(t *testing.T, app *App, userID int64, isAdmin bool) *http.Cookie {
+func sessionCookie(t *testing.T, app *App, userID int64) *http.Cookie {
 	t.Helper()
-	tok, err := app.Sessions.Sign(userID, isAdmin)
+	tok, err := app.Sessions.Sign(userID)
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestRebindWhenNotRegistered(t *testing.T) {
 	db.Create(&model.User{LinuxDOID: "10001", LinuxDOName: "alice", TrustLevel: 2, Status: 1})
 	var u model.User
 	db.Where("linux_do_id = ?", "10001").First(&u)
-	cookie := sessionCookie(t, app, u.ID, false)
+	cookie := sessionCookie(t, app, u.ID)
 
 	rec := perform(route(app), http.MethodPost, "/api/user/rebind", []*http.Cookie{cookie})
 	if rec.Code != http.StatusOK {

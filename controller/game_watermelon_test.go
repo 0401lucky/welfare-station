@@ -275,7 +275,7 @@ func TestWatermelonCancelDoesNotDeleteANewerOrForeignRound(t *testing.T) {
 	if err := db.Create(&other).Error; err != nil {
 		t.Fatal(err)
 	}
-	foreign := startWatermelonHTTP(t, app, sessionCookie(t, app, other.ID, false))
+	foreign := startWatermelonHTTP(t, app, sessionCookie(t, app, other.ID))
 	for _, id := range []string{old.SessionID, legacy.SessionID, foreign.SessionID, strings.Repeat("a", 32)} {
 		cancel(id)
 		for _, keep := range []string{current.SessionID, legacy.SessionID, foreign.SessionID} {

@@ -19,7 +19,11 @@ export default defineConfig({
     fs: { allow: [path.resolve(__dirname, '..')] },
   },
   test: {
+    // 纯逻辑测试(.ts)保持 node 环境:西瓜物理与一致性测试对耗时敏感,jsdom 的
+    // 启动开销会把它们推向超时。组件测试(.tsx)按 glob 切到 jsdom。
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    environmentMatchGlobs: [['src/**/*.test.tsx', 'jsdom']],
+    setupFiles: ['./src/test/setup.ts'],
+    include: ['src/**/*.test.{ts,tsx}'],
   },
 })

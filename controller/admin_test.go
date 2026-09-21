@@ -55,7 +55,7 @@ func TestAdminRoutesRejectNonAdmin(t *testing.T) {
 	app, srv, _ := checkinTestApp(t)
 	defer srv.Close()
 	_, normal := adminUsers(t, app)
-	cookie := sessionCookie(t, app, normal.ID, false)
+	cookie := sessionCookie(t, app, normal.ID)
 
 	routes := []struct{ method, path string }{
 		{http.MethodGet, "/api/admin/dashboard"},
@@ -91,7 +91,7 @@ func TestAdminWorkflow(t *testing.T) {
 	app, srv, _ := checkinTestApp(t)
 	defer srv.Close()
 	admin, _ := adminUsers(t, app)
-	cookie := sessionCookie(t, app, admin.ID, true)
+	cookie := sessionCookie(t, app, admin.ID)
 
 	// 1. Dashboard.
 	rec := perform(adminRoutes(app), http.MethodGet, "/api/admin/dashboard", []*http.Cookie{cookie})
@@ -216,7 +216,7 @@ func TestAdminListGrantsIncludesUserAndSearch(t *testing.T) {
 			t.Fatalf("create grant %d: %v", i, err)
 		}
 	}
-	cookie := sessionCookie(t, app, admin.ID, true)
+	cookie := sessionCookie(t, app, admin.ID)
 
 	type grantPageResponse struct {
 		Success bool `json:"success"`
@@ -294,7 +294,7 @@ func TestAdminRetryFailedGrant(t *testing.T) {
 	app, srv, db := checkinTestApp(t)
 	defer srv.Close()
 	admin, _ := adminUsers(t, app)
-	cookie := sessionCookie(t, app, admin.ID, true)
+	cookie := sessionCookie(t, app, admin.ID)
 
 	// Create a failed grant manually (simulate an earlier failed checkout).
 	failed := model.Grant{UserID: admin.ID, NewapiUserID: 900, Type: "manual", RefID: service.NewManualRefID(), Quota: 1000, Status: service.GrantStatusFailed, Error: "模拟失败"}
@@ -326,7 +326,7 @@ func TestAdminManualGrant(t *testing.T) {
 	app, srv, _ := checkinTestApp(t)
 	defer srv.Close()
 	admin, _ := adminUsers(t, app)
-	cookie := sessionCookie(t, app, admin.ID, true)
+	cookie := sessionCookie(t, app, admin.ID)
 
 	rec := performJSON(adminRoutes(app), http.MethodPost, "/api/admin/grants/manual", `{"newapi_user_id":42,"quota":777}`, cookie)
 	if rec.Code != http.StatusOK {
@@ -356,7 +356,7 @@ func TestAdminUpdateActivity(t *testing.T) {
 	app, srv, db := checkinTestApp(t)
 	defer srv.Close()
 	admin, _ := adminUsers(t, app)
-	cookie := sessionCookie(t, app, admin.ID, true)
+	cookie := sessionCookie(t, app, admin.ID)
 
 	start := time.Now().Add(-time.Hour).UTC()
 	end := time.Now().Add(24 * time.Hour).UTC()
@@ -460,7 +460,7 @@ func TestAdminGameConfig(t *testing.T) {
 	app, srv, _ := checkinTestApp(t)
 	defer srv.Close()
 	admin, _ := adminUsers(t, app)
-	cookie := sessionCookie(t, app, admin.ID, true)
+	cookie := sessionCookie(t, app, admin.ID)
 
 	// 1. 首次 GET 播种默认配置。
 	rec := perform(adminRoutes(app), http.MethodGet, "/api/admin/game-config", []*http.Cookie{cookie})
@@ -545,7 +545,7 @@ func TestAdminBudgets(t *testing.T) {
 	app, srv, db := checkinTestApp(t)
 	defer srv.Close()
 	admin, _ := adminUsers(t, app)
-	cookie := sessionCookie(t, app, admin.ID, true)
+	cookie := sessionCookie(t, app, admin.ID)
 
 	// 默认配置：game 池开启、预算 10000000；total 池关闭、预算 0。
 	today := service.TodayStr("Asia/Shanghai", time.Now())
@@ -658,7 +658,7 @@ func TestAdminDashboardDrawStats(t *testing.T) {
 	app, srv, _ := checkinTestApp(t)
 	defer srv.Close()
 	admin, _ := adminUsers(t, app)
-	cookie := sessionCookie(t, app, admin.ID, true)
+	cookie := sessionCookie(t, app, admin.ID)
 
 	cfg, err := service.GetCheckinConfig(app.DB)
 	if err != nil {

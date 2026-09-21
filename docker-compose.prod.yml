@@ -22,14 +22,8 @@ services:
       # 宿主机 8080 已被其他服务(caddy)占用,这里用 8090;隧道
       # fuli.lucky0625.qzz.io -> http://localhost:8090 依赖这个端口,别改。
       - "127.0.0.1:8090:8080"
-    healthcheck:
-      # 站点信息是公开只读接口,不需要鉴权,适合做存活探针。
-      # 镜像基于 alpine,自带 wget(busybox);没有 curl。
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/site/info"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+    # 存活探针由镜像内的 HEALTHCHECK 提供(Dockerfile,探 /healthz 并 ping 数据库),
+    # 这里不重复声明,避免两处配置漂移。
     logging:
       # 不限制的话 json 日志会把磁盘写满,这是长跑容器最常见的运维事故。
       driver: json-file

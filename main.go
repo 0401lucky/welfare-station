@@ -8,11 +8,13 @@ import (
 	"log"
 	"net/http"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"welfare/config"
+	"welfare/middleware"
 	"welfare/model"
 	"welfare/router"
 	"welfare/service"
@@ -40,7 +42,10 @@ func main() {
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(gin.Logger(), gin.Recovery())
+	// 安全头在 Recovery 之后:panic 兜底出的 500 也要带上。是否走 HTTPS 与
+	// controller.NewApp 里 Cookie Secure 的判断同源,都看 WELFARE_BASE_URL。
+	httpsMode := strings.HasPrefix(cfg.WelfareBaseURL, "https://")
+	r.Use(gin.Logger(), gin.Recovery(), middleware.SecurityHeaders(httpsMode))
 
 	router.Register(r, cfg, db)
 
@@ -55,6 +60,14 @@ func main() {
 	defer stop()
 
 	var workers sync.WaitGroup
+
+	// 限流桶是进程内 map,定期清掉闲置 key,否则长跑后慢泄漏。
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		middleware.StartSweeper(ctx)
+	}()
+
 	if cfg.AutoRetryEnabled {
 		grants := service.NewGrantService(db, service.NewNewAPIClient(cfg.NewAPIBaseURL, cfg.NewAPIAdminPAT))
 		worker := service.NewRetryWorker(db, grants, cfg.AutoRetryInterval, cfg.AutoRetryMaxAttempts)

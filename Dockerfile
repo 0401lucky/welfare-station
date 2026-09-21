@@ -25,4 +25,8 @@ COPY --from=build /out/welfare /app/welfare
 # The runtime image is designed to connect to an external MySQL instance.
 USER welfare
 EXPOSE 8080
+# 存活探针:/healthz 会 ping 数据库,DB 不可达时返回 503。alpine 自带 busybox wget,没有 curl。
+# compose 文件不再重复声明 healthcheck,统一沿用这里的定义。
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
+    CMD wget -qO- http://127.0.0.1:8080/healthz || exit 1
 ENTRYPOINT ["/app/welfare"]

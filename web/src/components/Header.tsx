@@ -5,6 +5,7 @@ import { LogIn, Gamepad2, ScrollText, Settings2, Sprout, Timer } from 'lucide-re
 import { useMe, useSiteInfo } from '@/hooks/useMe'
 import { api, User } from '@/lib/api'
 import { Clover } from '@/components/Clover'
+import { toast } from '@/components/Toast'
 import Quota from './Quota'
 import { Button } from './ui'
 import { formatExpireIn } from '@/lib/format'
@@ -48,10 +49,15 @@ export default function Header() {
   const loc = useLocation()
 
   async function logout() {
-    await api.post('/api/user/logout')
-    qc.clear()
+    try {
+      await api.post('/api/user/logout')
+    } catch {
+      toast.error('退出失败，请重试')
+      return
+    }
+    // 不整页刷新:重置查询缓存后 me 会重新拉取并得到 401,Header 自然切回登录态。
+    void qc.resetQueries()
     nav('/')
-    window.location.reload()
   }
 
   const isActive = (to: string) => loc.pathname === to || (to !== '/' && loc.pathname.startsWith(`${to}/`))

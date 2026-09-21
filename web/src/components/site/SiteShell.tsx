@@ -69,15 +69,18 @@ function SiteHeader({ width }: { width: SiteWidth }) {
     setLoggingOut(true)
     try {
       await api.post('/api/user/logout')
-      await qc.cancelQueries()
-      qc.clear()
-      navigate('/', { replace: true })
-      window.location.reload()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '退出失败，请稍后重试')
       logoutLock.current = false
       setLoggingOut(false)
+      return
     }
+    // 不整页刷新:重置查询缓存后 me 会重新拉取并得到 401,头部自然切回登录态。
+    await qc.cancelQueries()
+    void qc.resetQueries()
+    navigate('/', { replace: true })
+    logoutLock.current = false
+    setLoggingOut(false)
   }
 
   return (

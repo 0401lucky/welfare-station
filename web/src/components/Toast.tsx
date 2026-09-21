@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { AnimatePresence, motion } from 'framer-motion'
+import { X } from 'lucide-react'
 import { Clover } from '@/components/Clover'
 import { cn } from '@/lib/utils'
 
@@ -18,6 +19,13 @@ interface ToastStore {
 
 let toastSeq = 1
 
+// 错误信息多停留一会儿:用户往往要看清原因再决定重试;成功/提示看一眼就够。
+const durationMs: Record<ToastItem['kind'], number> = {
+  success: 3600,
+  info: 3600,
+  error: 6000,
+}
+
 export const useToastStore = create<ToastStore>((set) => ({
   items: [],
   push: (text, kind = 'info') => {
@@ -25,7 +33,7 @@ export const useToastStore = create<ToastStore>((set) => ({
     set((s) => ({ items: [...s.items.slice(-2), { id, text, kind }] }))
     setTimeout(() => {
       set((s) => ({ items: s.items.filter((t) => t.id !== id) }))
-    }, 3600)
+    }, durationMs[kind])
   },
   remove: (id) => set((s) => ({ items: s.items.filter((t) => t.id !== id) })),
 }))
@@ -44,24 +52,34 @@ const kindCls: Record<ToastItem['kind'], string> = {
 
 export function Toaster() {
   const items = useToastStore((s) => s.items)
+  const remove = useToastStore((s) => s.remove)
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-16 z-[70] flex flex-col items-center gap-2 px-4">
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="false"
+      className="pointer-events-none fixed inset-x-0 top-16 z-[70] flex flex-col items-center gap-2 px-4"
+    >
       <AnimatePresence>
         {items.map((t) => (
-          <motion.div
+          <motion.button
             key={t.id}
+            type="button"
+            onClick={() => remove(t.id)}
             initial={{ opacity: 0, y: -14, scale: 0.92 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.95 }}
             transition={{ type: 'spring', stiffness: 380, damping: 26 }}
             className={cn(
-              'pointer-events-auto flex max-w-md items-center gap-2 rounded-full border px-4 py-2 text-sm shadow-leaf-sm',
+              'pointer-events-auto flex max-w-md items-center gap-2 rounded-full border px-4 py-2 text-left text-sm shadow-leaf-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500',
               kindCls[t.kind],
             )}
           >
             <Clover size={16} stem={false} petal={t.kind === 'error' ? '#d4574e' : '#35a465'} />
             <span>{t.text}</span>
-          </motion.div>
+            <X size={14} aria-hidden="true" className="shrink-0 opacity-60" />
+            <span className="sr-only">关闭提示</span>
+          </motion.button>
         ))}
       </AnimatePresence>
     </div>

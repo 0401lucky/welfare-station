@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"sync"
@@ -48,6 +49,49 @@ func (b *bucket) Allow(key string) bool {
 	}
 	b.tokens[key]--
 	return true
+}
+
+// sweep 删除 lastSeen 早于 now-maxIdle 的 key,返回删除数量。
+//
+// 桶是进程内 map,每个新用户 / 新 IP 都会留下一条记录且从不回收,长跑之后就是
+// 一处慢泄漏。闲置超过 maxIdle 的 key 令牌早已回满,删掉再出现时按新 key 拿满额,
+// 语义上等价。tokens 与 lastSeen 必须一起删,只删一边照样泄漏。
+func (b *bucket) sweep(now time.Time, maxIdle time.Duration) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	cutoff := now.Add(-maxIdle)
+	removed := 0
+	for key, seen := range b.lastSeen {
+		if seen.Before(cutoff) {
+			delete(b.lastSeen, key)
+			delete(b.tokens, key)
+			removed++
+		}
+	}
+	return removed
+}
+
+const (
+	sweepInterval = 10 * time.Minute
+	sweepMaxIdle  = time.Hour
+)
+
+// StartSweeper 每 10 分钟清理一次全部限流桶里闲置超过 1 小时的 key,阻塞直到 ctx 结束。
+// 由 main.go 作为后台 worker 启动,随进程退出信号一起停止。
+func StartSweeper(ctx context.Context) {
+	ticker := time.NewTicker(sweepInterval)
+	defer ticker.Stop()
+	buckets := []*bucket{PerUserLimiter, IPLimiter, GameLimiter, GameCheckpointLimiter}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			for _, b := range buckets {
+				b.sweep(now, sweepMaxIdle)
+			}
+		}
+	}
 }
 
 // PerUserLimiter limits calls per authenticated user (design.md §9: 10/min for

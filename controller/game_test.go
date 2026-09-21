@@ -171,7 +171,7 @@ func TestGameSubmitRejectsOthersSession(t *testing.T) {
 	if err := app.DB.Create(&other).Error; err != nil {
 		t.Fatalf("建用户: %v", err)
 	}
-	otherCookie := sessionCookie(t, app, other.ID, false)
+	otherCookie := sessionCookie(t, app, other.ID)
 
 	body := movesJSON(start.SessionID, 0, repeatDirs(6))
 	rec := performJSON(gameRoutes(app), http.MethodPost, "/api/games/2048/submit", body, otherCookie)

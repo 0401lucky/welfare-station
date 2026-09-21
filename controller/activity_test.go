@@ -66,10 +66,10 @@ func TestListActivitiesOptionalUser(t *testing.T) {
 
 	assertState("anonymous", nil, 0, false)
 	assertState("invalid session", []*http.Cookie{{Name: service.SessionCookieName, Value: "invalid"}}, 0, false)
-	assertState("logged in", []*http.Cookie{sessionCookie(t, app, user.ID, false)}, 1, false)
+	assertState("logged in", []*http.Cookie{sessionCookie(t, app, user.ID)}, 1, false)
 
 	if err := db.Create(&model.Claim{ActivityID: activity.ID, UserID: user.ID, Quota: activity.Quota, Seq: 2}).Error; err != nil {
 		t.Fatalf("create second claim: %v", err)
 	}
-	assertState("limit reached", []*http.Cookie{sessionCookie(t, app, user.ID, false)}, 2, true)
+	assertState("limit reached", []*http.Cookie{sessionCookie(t, app, user.ID)}, 2, true)
 }

@@ -61,10 +61,7 @@ func scanSumByName(rows []sumByName) map[string]int64 {
 // 发放流水只有 created_at 时间戳。两边口径不一致时,仪表盘上「今日签到」和
 // 「今日领取」会分属不同的一天,数字对不上却看不出原因。
 func startOfTodayIn(tz string, now time.Time) time.Time {
-	loc, err := time.LoadLocation(tz)
-	if err != nil {
-		loc = time.UTC
-	}
+	loc := service.LoadLocationOr(tz)
 	l := now.In(loc)
 	return time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, loc)
 }
@@ -75,7 +72,7 @@ func startOfTodayIn(tz string, now time.Time) time.Time {
 // 累计与流水健康、用户规模。所有「今日」一律以配置时区的日界为准。
 func (a *App) AdminDashboard(c *gin.Context) {
 	now := time.Now()
-	tz := "Asia/Shanghai"
+	tz := service.DefaultTimezone
 	if cfg, err := service.GetCheckinConfig(a.DB); err == nil && cfg.Timezone != "" {
 		tz = cfg.Timezone
 	}
