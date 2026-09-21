@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Gift, Plus } from 'lucide-react'
+import { Copy, Gift, Plus } from 'lucide-react'
 import { ActionLink, QueryFeedback, SiteConfirmDialog, SiteDialog, SiteMoneyInput, SitePanel } from '@/components/site'
 import { Badge, Button, Input, Progress, Spinner, Table, Textarea } from '@/components/ui'
 import Quota from '@/components/Quota'
@@ -8,8 +8,8 @@ import { toast } from '@/components/Toast'
 import { useSiteInfo } from '@/hooks/useMe'
 import { api, type ActivityClaim, type AdminActivity } from '@/lib/api'
 import { formatDateTime } from '@/lib/format'
-import { adminHref } from './adminLedger'
-import { makeActivityDraft, prepareActivity, type ActivityDraft, type ActivityPayload } from './adminValidation'
+import { activityPhase, activityPhaseLabels, adminHref } from './adminLedger'
+import { makeActivityCopyDraft, makeActivityDraft, prepareActivity, type ActivityDraft, type ActivityPayload } from './adminValidation'
 import { AdminField, AdminHeading, AdminQueryFeedback, AdminRefresh, adminQueryRetry, fieldDescription, useAdminBeforeUnload, useAdminMoneyValidity, useAdminPermissionError, type AdminPanelProps } from './adminShared'
 
 export default function ActivitiesTab({ adminId, active = true }: AdminPanelProps) {
@@ -49,6 +49,7 @@ export default function ActivitiesTab({ adminId, active = true }: AdminPanelProp
   })
   const denied = useAdminPermissionError(query.error, save.error, remove.error)
   useAdminBeforeUnload(!!editing || save.isPending)
+  const now = Date.now()
   const prepared = editing ? prepareActivity(editing) : null
   const invalid = !prepared?.payload || money.invalid || !site.data
   const update = (change: Partial<ActivityDraft>) => {
@@ -57,9 +58,10 @@ export default function ActivitiesTab({ adminId, active = true }: AdminPanelProp
     editingRef.current = next
     setEditing(next)
   }
-  function openEditor(activity?: AdminActivity) {
+  function openEditor(activity?: AdminActivity, copy = false) {
     if (savingLock.current || editingRef.current || remove.isPending) return
-    const draft = makeActivityDraft(++nextInstance.current, activity)
+    const instance = ++nextInstance.current
+    const draft = copy && activity ? makeActivityCopyDraft(instance, activity) : makeActivityDraft(instance, activity)
     editingRef.current = draft
     setEditing(draft)
     money.reset(); save.reset()
@@ -78,16 +80,19 @@ export default function ActivitiesTab({ adminId, active = true }: AdminPanelProp
     {remove.error && !denied && <QueryFeedback kind="error" title="删除未完成，请核对列表" description={remove.error.message} compact />}
     {!denied && query.data && <SitePanel className="space-y-3 p-3 sm:p-4" aria-busy={query.isFetching}>
       <p className="text-sm text-clover-800">共 {query.data.length} 个活动</p>
-      {query.data.length === 0 ? <QueryFeedback kind="empty" title="还没有活动" description="创建活动后，可在这里查看库存、编辑内容和领取明细。" /> : <Table head={['活动', '面值', '领取进度', '状态', '开放时间', '操作']} rows={query.data.map(activity => [
+      {query.data.length === 0 ? <QueryFeedback kind="empty" title="还没有活动" description="创建活动后，可在这里查看库存、编辑内容和领取明细。" /> : <Table head={['活动', '面值', '领取进度', '状态', '开放时间', '操作']} rows={query.data.map(activity => {
+        const phase = activityPhase(activity, now)
+        return [
         <div key="title" className="min-w-36 max-w-56 break-words"><p className="font-semibold text-clover-900">{activity.title}</p><p className="mt-1 text-xs text-clover-700">活动 #{activity.id}</p></div>,
         <Quota key="quota" value={activity.quota} className="whitespace-nowrap font-medium tabular-nums" />,
         <div key="progress" className="w-28"><Progress value={activity.total_count > 0 ? activity.claimed_count / activity.total_count : 0} /><p className="mt-1 text-xs tabular-nums text-clover-700">{activity.claimed_count} / {activity.total_count} 份</p></div>,
-        <Badge key="status" className={activity.status === 1 ? 'border border-clover-200 bg-clover-50 text-clover-800' : 'border border-clover-100 bg-muted text-clover-700'}>{activity.status === 1 ? '上架' : '下架'}</Badge>,
+        <div key="status" className="flex flex-wrap gap-1"><Badge className={activity.status === 1 ? 'border border-clover-200 bg-clover-50 text-clover-800' : 'border border-clover-100 bg-muted text-clover-700'}>{activity.status === 1 ? '上架' : '下架'}</Badge>{phase !== 'off' && <Badge className={phase === 'ended' ? 'border border-clover-100 bg-muted text-clover-700' : phase === 'upcoming' ? 'border border-gold-300 bg-cream text-gold-600' : 'border border-clover-300 bg-clover-100 text-clover-900'}>{activityPhaseLabels[phase]}</Badge>}</div>,
         <div key="dates" className="min-w-36 text-xs leading-5 text-clover-700"><p>{formatDateTime(activity.start_at)}</p><p>至 {formatDateTime(activity.end_at)}</p></div>,
-        <div key="actions" className="flex flex-wrap gap-1.5"><Button type="button" size="sm" variant="outline" className="relative min-h-11 whitespace-nowrap" onClick={() => setViewing(activity)}>领取明细<span className="sr-only"> {activity.title}</span></Button><Button type="button" size="sm" variant="outline" className="relative min-h-11" disabled={!!editing || save.isPending || remove.isPending} onClick={() => openEditor(activity)}>编辑<span className="sr-only"> {activity.title}</span></Button><Button type="button" size="sm" variant="ghost" className="relative min-h-11 text-destructive" disabled={save.isPending || remove.isPending} onClick={() => setDeleting(activity)}>删除<span className="sr-only"> {activity.title}</span></Button></div>,
-      ])} />}
+        <div key="actions" className="flex flex-wrap gap-1.5"><Button type="button" size="sm" variant="outline" className="relative min-h-11 whitespace-nowrap" onClick={() => setViewing(activity)}>领取明细<span className="sr-only"> {activity.title}</span></Button><Button type="button" size="sm" variant="outline" className="relative min-h-11" disabled={!!editing || save.isPending || remove.isPending} onClick={() => openEditor(activity)}>编辑<span className="sr-only"> {activity.title}</span></Button><Button type="button" size="sm" variant="outline" className="relative min-h-11 whitespace-nowrap" disabled={!!editing || save.isPending || remove.isPending} onClick={() => openEditor(activity, true)}><Copy size={14} aria-hidden="true" />复制<span className="sr-only"> {activity.title}</span></Button><Button type="button" size="sm" variant="ghost" className="relative min-h-11 text-destructive" disabled={save.isPending || remove.isPending} onClick={() => setDeleting(activity)}>删除<span className="sr-only"> {activity.title}</span></Button></div>,
+        ]
+      })} />}
     </SitePanel>}
-    <SiteDialog open={active && !denied && !!editing} title={editing?.id ? `编辑活动 #${editing.id}` : '新建活动'} description="时间按当前设备时区显示。保存失败会保留输入；保存过程中暂不能关闭。" loading={save.isPending} size="lg" onClose={() => { if (!save.isPending) setDiscarding(true) }} footer={<div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" className="min-h-11" disabled={save.isPending} onClick={() => setDiscarding(true)}>取消编辑</Button><Button type="submit" form="admin-activity-form" className="min-h-11" disabled={save.isPending || invalid}>{save.isPending && <Spinner size={16} />}{save.isPending ? '正在保存…' : '保存活动'}</Button></div>}>
+    <SiteDialog open={active && !denied && !!editing} title={editing?.id ? `编辑活动 #${editing.id}` : editing?.copiedFrom ? `新建活动（复制自 #${editing.copiedFrom}）` : '新建活动'} description={editing?.copiedFrom ? '已沿用原活动的内容与规则，开放时间需重新填写；保存后会生成一条新活动，原活动不变。' : '时间按当前设备时区显示。保存失败会保留输入；保存过程中暂不能关闭。'} loading={save.isPending} size="lg" onClose={() => { if (!save.isPending) setDiscarding(true) }} footer={<div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" className="min-h-11" disabled={save.isPending} onClick={() => setDiscarding(true)}>取消编辑</Button><Button type="submit" form="admin-activity-form" className="min-h-11" disabled={save.isPending || invalid}>{save.isPending && <Spinner size={16} />}{save.isPending ? '正在保存…' : '保存活动'}</Button></div>}>
       {editing && prepared && <form id="admin-activity-form" noValidate onSubmit={submit}>
         <fieldset disabled={save.isPending} className="space-y-4">
           <AdminField id="activity-title" label="活动标题" error={prepared.errors.title}><Input id="activity-title" className="min-h-11" value={editing.title} aria-invalid={!!prepared.errors.title} aria-describedby={fieldDescription('activity-title', false, prepared.errors.title)} onChange={event => update({ title: event.target.value })} /></AdminField>

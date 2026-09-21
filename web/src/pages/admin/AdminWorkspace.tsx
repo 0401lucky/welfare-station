@@ -72,11 +72,9 @@ function AdminWorkspace({ user, GamePanel }: { user: User; GamePanel: ComponentT
       setParams(corrected, { replace: true })
     }
   }, [params, tab, setParams])
-  const href = (next: AdminTab) => {
-    const target = new URLSearchParams(params)
-    target.set('tab', next)
-    return `/admin?${target}`
-  }
+  // 发放流水与用户管理都把筛选和页码放在 URL 里,字段名有重叠(page / status)。
+  // 切换区块只带 tab,不把上一个区块的筛选原样搬过去,否则会串页、串筛选。
+  const href = (next: AdminTab) => `/admin?tab=${next}`
   const retained = (next: AdminTab) => tab === next || visited.has(next)
 
   return <>

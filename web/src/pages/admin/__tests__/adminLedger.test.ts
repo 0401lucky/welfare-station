@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { adminHref, adminPageInfo, grantRequestParams, grantSearchError, isStalePending, parseAdminPage, parseAdminTab, readGrantFilters } from '../adminLedger'
+import { activityPhase, adminHref, adminPageInfo, grantExportUrl, grantRequestParams, grantSearchError, isStalePending, parseAdminPage, parseAdminTab, readGrantFilters } from '../adminLedger'
 
 describe('admin ledger query and pagination', () => {
   it('composes actual server filters and pages beyond the former first 50 rows', () => {
@@ -47,5 +47,24 @@ describe('admin ledger query and pagination', () => {
     expect(isStalePending({ ...pending, updated_at: '2026-09-12T10:10:00Z' }, now)).toBe(false)
     expect(isStalePending({ ...pending, status: 'failed' }, now)).toBe(false)
     expect(isStalePending({ ...pending, updated_at: 'invalid' }, now)).toBe(false)
+  })
+
+  it('导出地址只带已生效的筛选,不带分页', () => {
+    expect(grantExportUrl({ search: '', status: '', type: '' })).toBe('/api/admin/grants/export')
+    expect(grantExportUrl({ search: ' alice ', status: 'failed', type: 'draw' })).toBe('/api/admin/grants/export?search=alice&status=failed&type=draw')
+    expect(grantExportUrl(readGrantFilters(new URLSearchParams('search=%25_&page=3&page_size=50')))).toBe('/api/admin/grants/export?search=%25_')
+  })
+
+  it('活动阶段先看上下架再看时间窗,边界时刻算进行中', () => {
+    const now = Date.parse('2026-09-12T10:00:00Z')
+    const live = { status: 1, start_at: '2026-09-12T09:00:00Z', end_at: '2026-09-12T11:00:00Z' }
+    expect(activityPhase(live, now)).toBe('live')
+    expect(activityPhase({ ...live, status: 2 }, now)).toBe('off')
+    expect(activityPhase({ ...live, start_at: '2026-09-12T10:00:01Z' }, now)).toBe('upcoming')
+    expect(activityPhase({ ...live, end_at: '2026-09-12T09:59:59Z' }, now)).toBe('ended')
+    expect(activityPhase({ ...live, start_at: '2026-09-12T10:00:00Z' }, now)).toBe('live')
+    expect(activityPhase({ ...live, end_at: '2026-09-12T10:00:00Z' }, now)).toBe('live')
+    // 已结束优先于未开始的判定不会冲突;时间非法时不猜测,按进行中展示。
+    expect(activityPhase({ ...live, start_at: 'invalid', end_at: 'invalid' }, now)).toBe('live')
   })
 })

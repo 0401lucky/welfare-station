@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, FileText, RefreshCw, Search } from 'lucide-react'
-import { QueryFeedback, SiteConfirmDialog, SitePanel } from '@/components/site'
+import { ChevronLeft, ChevronRight, Download, FileText, RefreshCw, Search } from 'lucide-react'
+import { ActionLink, QueryFeedback, SiteConfirmDialog, SitePanel } from '@/components/site'
 import { Button, Input, Select, Spinner, Table } from '@/components/ui'
 import Quota from '@/components/Quota'
 import { toast } from '@/components/Toast'
 import { api, ApiError, type GrantPage, type GrantRecord } from '@/lib/api'
 import { formatDateTime } from '@/lib/format'
-import { adminPageInfo, grantRequestParams, grantSearchError, grantSourceLabel, grantSources, grantStatuses, grantStatusLabel, readGrantFilters, type GrantFilters } from './adminLedger'
+import { adminPageInfo, grantExportUrl, grantRequestParams, grantSearchError, grantSourceLabel, grantSources, grantStatuses, grantStatusLabel, readGrantFilters, type GrantFilters } from './adminLedger'
 import { readGrantReceipt, type GrantReceipt } from './adminManual'
 import { GrantIdentity, GrantProgress, GrantQuotaKind, GrantStatus } from './GrantSummary'
 import { AdminHeading, AdminQueryFeedback, AdminRefresh, adminQueryRetry, invalidateAdminPayouts, useAdminPermissionError, type AdminPanelProps } from './adminShared'
@@ -105,14 +105,14 @@ export default function GrantsTab({ adminId }: AdminPanelProps) {
   }
 
   return <SitePanel className="space-y-4 p-4 sm:p-6">
-    <AdminHeading icon={FileText} title="发放流水" description="查询到账状态，核对并处理已有的失败记录。" actions={<AdminRefresh busy={busy} onClick={() => void query.refetch()} />} />
+    <AdminHeading icon={FileText} title="发放流水" description="查询到账状态，核对并处理已有的失败记录。" actions={<>{!urlError && !denied && <ActionLink href={grantExportUrl(filters)} download variant="outline" className="min-h-11"><Download size={15} aria-hidden="true" />导出 CSV</ActionLink>}<AdminRefresh busy={busy} onClick={() => void query.refetch()} /></>} />
     <form className="grid gap-3 rounded-xl border border-clover-100 bg-clover-50/40 p-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)_minmax(0,1fr)_auto]" onSubmit={event => { event.preventDefault(); if (!inputError) writeFilters({ ...filters, ...draft, search: draft.search.trim(), page: 1 }, false, true) }}>
       <div className="min-w-0"><label htmlFor="grant-search" className="mb-1.5 block text-xs font-medium text-clover-800">用户或关联编号</label><Input id="grant-search" className="min-h-11" placeholder="用户名、LinuxDO 或关联 ID" value={draft.search} aria-invalid={!!inputError} aria-describedby={inputError ? 'grant-search-help grant-search-error' : 'grant-search-help'} onChange={event => setDraft(current => ({ ...current, search: event.target.value }))} /></div>
       <div><label htmlFor="grant-status" className="mb-1.5 block text-xs font-medium text-clover-800">状态</label><Select id="grant-status" className="min-h-11" value={draft.status} onChange={event => setDraft(current => ({ ...current, status: event.target.value }))}><option value="">全部状态</option>{grantStatuses.map(status => <option key={status.value} value={status.value}>{status.label}</option>)}</Select></div>
       <div><label htmlFor="grant-source" className="mb-1.5 block text-xs font-medium text-clover-800">来源</label><Select id="grant-source" className="min-h-11" value={draft.type} onChange={event => setDraft(current => ({ ...current, type: event.target.value }))}><option value="">全部来源</option>{grantSources.map(source => <option key={source.value} value={source.value}>{source.label}</option>)}</Select></div>
       <div className="flex items-end gap-2"><Button type="submit" className="min-h-11" disabled={!!inputError || retry.isPending}><Search size={15} aria-hidden="true" />查询</Button><Button type="button" variant="ghost" className="min-h-11" disabled={retry.isPending} onClick={() => { setDraft({ search: '', type: '', status: '' }); writeFilters({ search: '', status: '', type: '', page: 1, pageSize: filters.pageSize }, false, true) }}>重置</Button></div>
     </form>
-    <p id="grant-search-help" className="text-xs leading-5 text-clover-700">支持姓名、用户名、LinuxDO 身份；数字同时匹配站内 ID、new-api ID 和关联编号。查询结果可能来自不同账号，请核对实际收款账号。</p>
+    <p id="grant-search-help" className="text-xs leading-5 text-clover-700">支持姓名、用户名、LinuxDO 身份；数字同时匹配站内 ID、new-api ID 和关联编号。查询结果可能来自不同账号，请核对实际收款账号。「导出 CSV」按当前已生效的筛选条件导出，最多 10000 行，可直接用 Excel 打开。</p>
     {inputError && <p id="grant-search-error" className="text-sm text-destructive">{inputError}</p>}
     {urlError && <QueryFeedback kind="error" title="搜索条件过长" description={urlError} compact />}
     <AdminQueryFeedback error={query.error ?? (denied ? retry.error : null)} hasData={!!loaded} retry={() => void query.refetch()} retrying={query.isFetching} />

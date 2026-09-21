@@ -9,6 +9,7 @@ import { api, type CheckinConfig, type QuotaType } from '@/lib/api'
 import { minutesToHHMM } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { parseAdminInteger, parseAdminOpeningTime, parseStreakBonuses } from './adminValidation'
+import NoticePanel from './NoticePanel'
 import {
   AdminDraftNote, AdminField, AdminHeading, AdminQueryFeedback, AdminSaveBar, adminQueryRetry,
   fieldDescription, useAdminBeforeUnload, useAdminDraft, useAdminMoneyValidity, useAdminPermissionError, type AdminPanelProps,
@@ -66,8 +67,9 @@ export default function ConfigTab({ adminId, active = true }: AdminPanelProps) {
     save.mutate({ snapshot: current, payload: { ...current.config, streak_bonuses: streak.value!, min_trust_level: trust.value!, available_from_minutes: opening.value! } })
   }
 
-  return <div className="space-y-4">
-    <AdminHeading icon={Settings2} title="签到配置" description="设置每日签到的奖励、时间和参与条件。" />
+  return <>
+    <div className="space-y-4">
+      <AdminHeading icon={Settings2} title="签到配置" description="设置每日签到的奖励、时间和参与条件。" />
     <AdminQueryFeedback error={query.error ?? (denied ? save.error : null)} hasData={!!current} retry={() => void query.refetch()} retrying={query.isFetching} />
     {query.isPending && !current && <QueryFeedback kind="loading" title="正在读取签到设置…" />}
     {!denied && current && config && <>
@@ -101,5 +103,8 @@ export default function ConfigTab({ adminId, active = true }: AdminPanelProps) {
       <AdminDraftNote />
       <AdminSaveBar formId="admin-checkin-form" dirty={editor.dirty} pending={save.isPending} savedAt={editor.savedAt} invalid={invalid} onReset={() => { editor.reset(); money.reset(); save.reset() }} />
     </>}
-  </div>
+    </div>
+    {/* 公告放在签到区块之外:签到的保存条是 sticky 的,放同一容器里会一直浮在公告上方。 */}
+    <NoticePanel adminId={adminId} active={active} />
+  </>
 }

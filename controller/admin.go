@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/csv"
 	"errors"
 	"net/http"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"welfare/service"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // AdminGrantUser 是后台流水中关联的福利站用户投影。
@@ -66,16 +68,21 @@ func startOfTodayIn(tz string, now time.Time) time.Time {
 	return time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, loc)
 }
 
+// checkinTimezone 返回签到配置的时区,读不到时回落默认值。后台所有「今日」口径都以它为准。
+func (a *App) checkinTimezone() string {
+	if cfg, err := service.GetCheckinConfig(a.DB); err == nil && cfg.Timezone != "" {
+		return cfg.Timezone
+	}
+	return service.DefaultTimezone
+}
+
 // GET /api/admin/dashboard — 运营概览(R4.6)。
 //
 // 分四组:今日各玩法的参与与中奖、今日发放额度(按来源与按额度类型)、
 // 累计与流水健康、用户规模。所有「今日」一律以配置时区的日界为准。
 func (a *App) AdminDashboard(c *gin.Context) {
 	now := time.Now()
-	tz := service.DefaultTimezone
-	if cfg, err := service.GetCheckinConfig(a.DB); err == nil && cfg.Timezone != "" {
-		tz = cfg.Timezone
-	}
+	tz := a.checkinTimezone()
 	todayStr := service.TodayStr(tz, now)
 	dayStart := startOfTodayIn(tz, now)
 
@@ -194,6 +201,28 @@ func (a *App) AdminPutCheckinConfig(c *gin.Context) {
 		return
 	}
 	common.Ok(c, body)
+}
+
+// GET/PUT /api/admin/site-notice — 站点公告(纯文本,≤ 500 字,空串即隐藏)。
+func (a *App) AdminGetSiteNotice(c *gin.Context) {
+	common.Ok(c, gin.H{"notice": service.GetSiteNotice(a.DB)})
+}
+
+func (a *App) AdminPutSiteNotice(c *gin.Context) {
+	var body struct {
+		Notice string `json:"notice"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		common.BadRequest(c, "JSON 格式错误")
+		return
+	}
+	saved, err := service.PutSiteNotice(a.DB, body.Notice)
+	if err != nil {
+		common.BadRequest(c, err.Error())
+		return
+	}
+	// TODO(audit): admin-insights 落地后在此记录审计日志(action=site_notice.update)。
+	common.Ok(c, gin.H{"notice": saved})
 }
 
 // GET/POST /api/admin/activities — list (with claims) / create (R4.3).
@@ -379,8 +408,12 @@ func (a *App) AdminListClaims(c *gin.Context) {
 	common.Ok(c, claims)
 }
 
-// GET /api/admin/grants — grant ledger with filters (R4.4).
-func (a *App) AdminListGrants(c *gin.Context) {
+// errGrantSearchTooLong 让列表与导出对超长搜索词给出同一句提示。
+var errGrantSearchTooLong = errors.New("search 不能超过 128 个字符")
+
+// buildGrantQuery 按 status / type / search 组装流水筛选,列表与 CSV 导出共用,
+// 保证「导出的就是筛出来的」。不含排序与分页。
+func (a *App) buildGrantQuery(c *gin.Context) (*gorm.DB, error) {
 	q := a.DB.Model(&model.Grant{})
 	if s := c.Query("status"); s != "" {
 		q = q.Where("status = ?", s)
@@ -390,8 +423,7 @@ func (a *App) AdminListGrants(c *gin.Context) {
 	}
 	if search := strings.TrimSpace(c.Query("search")); search != "" {
 		if len(search) > 128 {
-			common.BadRequest(c, "search 不能超过 128 个字符")
-			return
+			return nil, errGrantSearchTooLong
 		}
 		like := "%" + escapeLikeLiteral(search) + "%"
 		userQuery := a.DB.Model(&model.User{}).
@@ -404,14 +436,30 @@ func (a *App) AdminListGrants(c *gin.Context) {
 			q = q.Where("(user_id IN (?) OR type LIKE ? ESCAPE '\\')", userQuery, like)
 		}
 	}
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	return q, nil
+}
+
+// adminPageParams 解析后台列表共用的 page / page_size:非法或越界一律回落默认值。
+func adminPageParams(c *gin.Context) (page, pageSize int) {
+	page, _ = strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ = strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	if page < 1 {
 		page = 1
 	}
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
+	return page, pageSize
+}
+
+// GET /api/admin/grants — grant ledger with filters (R4.4).
+func (a *App) AdminListGrants(c *gin.Context) {
+	q, err := a.buildGrantQuery(c)
+	if err != nil {
+		common.BadRequest(c, err.Error())
+		return
+	}
+	page, pageSize := adminPageParams(c)
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		common.InternalError(c, "读取流水失败")
@@ -422,32 +470,10 @@ func (a *App) AdminListGrants(c *gin.Context) {
 		common.InternalError(c, "读取流水失败")
 		return
 	}
-
-	// 批量读取用户，避免按流水逐条查询造成 N+1；用户被删除时保留流水本身，user 为 null。
-	usersByID := make(map[int64]model.User, len(grants))
-	if len(grants) > 0 {
-		ids := make([]int64, 0, len(grants))
-		seen := make(map[int64]struct{}, len(grants))
-		for _, grant := range grants {
-			if grant.UserID == 0 {
-				continue
-			}
-			if _, ok := seen[grant.UserID]; ok {
-				continue
-			}
-			seen[grant.UserID] = struct{}{}
-			ids = append(ids, grant.UserID)
-		}
-		if len(ids) > 0 {
-			var users []model.User
-			if err := a.DB.Where("id IN ?", ids).Find(&users).Error; err != nil {
-				common.InternalError(c, "读取流水关联用户失败")
-				return
-			}
-			for _, user := range users {
-				usersByID[user.ID] = user
-			}
-		}
+	usersByID, err := a.loadGrantUsers(grants)
+	if err != nil {
+		common.InternalError(c, "读取流水关联用户失败")
+		return
 	}
 	items := make([]AdminGrantItem, 0, len(grants))
 	for _, grant := range grants {
@@ -468,6 +494,104 @@ func (a *App) AdminListGrants(c *gin.Context) {
 		// 前端据此判断某条失败流水是否已用尽自动重试预算(需人工介入)。
 		"auto_retry_enabled":      a.Config.AutoRetryEnabled,
 		"auto_retry_max_attempts": a.Config.AutoRetryMaxAttempts})
+}
+
+// loadGrantUsers 按本页流水去重后批量读取关联用户,避免逐条查询造成 N+1;
+// 用户被删除时流水照常返回,调用方按「查不到」处理。
+func (a *App) loadGrantUsers(grants []model.Grant) (map[int64]model.User, error) {
+	usersByID := make(map[int64]model.User, len(grants))
+	if len(grants) == 0 {
+		return usersByID, nil
+	}
+	ids := make([]int64, 0, len(grants))
+	seen := make(map[int64]struct{}, len(grants))
+	for _, grant := range grants {
+		if grant.UserID == 0 {
+			continue
+		}
+		if _, ok := seen[grant.UserID]; ok {
+			continue
+		}
+		seen[grant.UserID] = struct{}{}
+		ids = append(ids, grant.UserID)
+	}
+	if len(ids) == 0 {
+		return usersByID, nil
+	}
+	var users []model.User
+	if err := a.DB.Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	for _, user := range users {
+		usersByID[user.ID] = user
+	}
+	return usersByID, nil
+}
+
+// adminGrantsExportMax 是单次导出的行数上限:导出是为了对账,不是备份数据库。
+const adminGrantsExportMax = 10000
+
+// GET /api/admin/grants/export — 按当前筛选导出 CSV。
+//
+// 不走 JSON 信封,直接写响应体。带 UTF-8 BOM 是为了让 Excel 双击打开时中文不乱码;
+// 时间按签到配置时区展示,额度换算成美元保留 4 位,与后台页面同一口径。
+func (a *App) AdminExportGrants(c *gin.Context) {
+	q, err := a.buildGrantQuery(c)
+	if err != nil {
+		common.BadRequest(c, err.Error())
+		return
+	}
+	var grants []model.Grant
+	if err := q.Order("id desc").Limit(adminGrantsExportMax).Find(&grants).Error; err != nil {
+		common.InternalError(c, "读取流水失败")
+		return
+	}
+	usersByID, err := a.loadGrantUsers(grants)
+	if err != nil {
+		common.InternalError(c, "读取流水关联用户失败")
+		return
+	}
+	loc := service.LoadLocationOr(a.checkinTimezone())
+	perUnit := float64(a.Config.QuotaPerUnit)
+
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", `attachment; filename="grants-`+time.Now().In(loc).Format("20060102")+`.csv"`)
+	c.Status(http.StatusOK)
+	_, _ = c.Writer.Write([]byte("\xEF\xBB\xBF"))
+	w := csv.NewWriter(c.Writer)
+	w.UseCRLF = true
+	_ = w.Write([]string{"流水ID", "时间", "LinuxDO 用户名", "new-api 用户ID", "类型", "额度(美元)", "额度类型", "状态", "错误信息"})
+	for _, g := range grants {
+		name := ""
+		if u, ok := usersByID[g.UserID]; ok {
+			name = u.LinuxDOName
+		}
+		_ = w.Write([]string{
+			strconv.FormatInt(g.ID, 10),
+			g.CreatedAt.In(loc).Format("2006-01-02 15:04:05"),
+			csvCellSafe(name),
+			strconv.FormatInt(g.NewapiUserID, 10),
+			g.Type,
+			strconv.FormatFloat(float64(g.Quota)/perUnit, 'f', 4, 64),
+			g.QuotaType,
+			g.Status,
+			csvCellSafe(g.Error),
+		})
+	}
+	w.Flush()
+}
+
+// csvCellSafe 给可能被 Excel 当成公式的单元格加前导单引号。LinuxDO 用户名与 new-api
+// 返回的错误信息都不由站长控制,以 = + - @ 开头的文本在 Excel 里会被当公式执行。
+func csvCellSafe(s string) string {
+	if s == "" {
+		return s
+	}
+	switch s[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + s
+	}
+	return s
 }
 
 // POST /api/admin/grants/:id/retry — retry a failed grant (R4.4 / R5.3).
@@ -564,19 +688,43 @@ func (a *App) AdminManualGrant(c *gin.Context) {
 	common.Ok(c, grant)
 }
 
-// GET /api/admin/users — welfare users + status toggle (R4.1, R7).
+// GET /api/admin/users — 站内用户分页列表,支持关键词 / 绑定 / 状态筛选(R4.1, R7)。
 func (a *App) AdminListUsers(c *gin.Context) {
 	q := a.DB.Model(&model.User{})
-	if kw := c.Query("keyword"); kw != "" {
-		like := "%" + kw + "%"
-		q = q.Where("linux_do_name LIKE ? OR linux_do_id LIKE ? OR newapi_username LIKE ?", like, like, like)
+	if kw := strings.TrimSpace(c.Query("keyword")); kw != "" {
+		like := "%" + escapeLikeLiteral(kw) + "%"
+		q = q.Where("linux_do_name LIKE ? ESCAPE '\\' OR linux_do_id LIKE ? ESCAPE '\\' OR newapi_username LIKE ? ESCAPE '\\'", like, like, like)
 	}
-	var users []model.User
-	if err := q.Order("id desc").Limit(100).Find(&users).Error; err != nil {
+	switch c.Query("bound") {
+	case "", "all":
+	case "yes":
+		q = q.Where("newapi_user_id IS NOT NULL")
+	case "no":
+		q = q.Where("newapi_user_id IS NULL")
+	default:
+		common.BadRequest(c, "bound 只能为 all / yes / no")
+		return
+	}
+	switch status := c.Query("status"); status {
+	case "", "all":
+	case "1", "2":
+		q = q.Where("status = ?", status)
+	default:
+		common.BadRequest(c, "status 只能为 all / 1 / 2")
+		return
+	}
+	page, pageSize := adminPageParams(c)
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
 		common.InternalError(c, "读取用户失败")
 		return
 	}
-	common.Ok(c, users)
+	var users []model.User
+	if err := q.Order("id desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&users).Error; err != nil {
+		common.InternalError(c, "读取用户失败")
+		return
+	}
+	common.Ok(c, gin.H{"total": total, "page": page, "page_size": pageSize, "items": users})
 }
 
 // PUT /api/admin/users/:id/status — ban / unban a welfare user (R4.1).

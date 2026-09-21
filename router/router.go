@@ -1,11 +1,9 @@
 package router
 
 import (
-	"welfare/common"
 	"welfare/config"
 	"welfare/controller"
 	"welfare/middleware"
-	"welfare/service"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -22,17 +20,7 @@ func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
 	api := r.Group("/api")
 
 	// ---- Public ----
-	api.GET("/site/info", func(c *gin.Context) {
-		common.Ok(c, gin.H{
-			"site_name":      cfg.WelfareSiteName,
-			"quota_per_unit": cfg.QuotaPerUnit,
-			// 只读:供前端把「单次发放上限」换算成美元提示,校验仍以后端为准。
-			// 上限存配置表(后台可改),环境变量只是首次运行的种子值。
-			"max_grant_quota": service.MaxGrantQuotaOf(db, cfg.MaxGrantQuota),
-			"newapi_url":      cfg.NewAPIPublicURL, // 为空时前端不渲染跳转入口
-			"notice":          "",                  // notice is editable later via admin settings
-		})
-	})
+	api.GET("/site/info", app.SiteInfo)
 	api.GET("/oauth/linuxdo", app.OAuthLogin)
 	api.GET("/oauth/linuxdo/callback", middleware.RateLimitIP(), app.OAuthCallback)
 
@@ -73,12 +61,15 @@ func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
 	admin.GET("/admin/dashboard", app.AdminDashboard)
 	admin.GET("/admin/checkin-config", app.AdminGetCheckinConfig)
 	admin.PUT("/admin/checkin-config", app.AdminPutCheckinConfig)
+	admin.GET("/admin/site-notice", app.AdminGetSiteNotice)
+	admin.PUT("/admin/site-notice", app.AdminPutSiteNotice)
 	admin.GET("/admin/activities", app.AdminListActivities)
 	admin.POST("/admin/activities", app.AdminCreateActivity)
 	admin.GET("/admin/activities/:id/claims", app.AdminListClaims)
 	admin.PUT("/admin/activities/:id", app.AdminUpdateActivity)
 	admin.DELETE("/admin/activities/:id", app.AdminDeleteActivity)
 	admin.GET("/admin/grants", app.AdminListGrants)
+	admin.GET("/admin/grants/export", app.AdminExportGrants)
 	admin.POST("/admin/grants/:id/retry", app.AdminRetryGrant)
 	admin.POST("/admin/grants/manual", app.AdminManualGrant)
 	admin.GET("/admin/users", app.AdminListUsers)

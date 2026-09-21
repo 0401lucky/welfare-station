@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"welfare/model"
 
@@ -399,4 +401,36 @@ func MatchTier(tiers []GameTier, highestTile int) (GameTier, bool) {
 		}
 	}
 	return hit, found
+}
+
+// ---- 站点公告(site_notice)----
+
+// SiteNoticeKey 是 w_settings 里的公告键。值是纯文本而不是 JSON:公告本身就是一段话,
+// 没有结构可言,包一层 JSON 只会让直接看表的人多一层引号。
+const SiteNoticeKey = "site_notice"
+
+// siteNoticeMaxRunes 是公告长度上限,按字符数而非字节数,与后台的计数口径一致。
+const siteNoticeMaxRunes = 500
+
+// GetSiteNotice 读取站点公告;缺失或读取失败一律返回空串(空串 = 不展示公告)。
+// /site/info 是公开接口,公告读不出来不该把整个站点信息一起拖垮。
+func GetSiteNotice(db *gorm.DB) string {
+	raw, err := GetSetting(db, SiteNoticeKey)
+	if err != nil {
+		return ""
+	}
+	return raw
+}
+
+// PutSiteNotice 去掉首尾空白后保存公告,返回实际落库的文本;超过上限返回错误。
+// 空串照常保存,这就是「清空公告」的方式。
+func PutSiteNotice(db *gorm.DB, text string) (string, error) {
+	text = strings.TrimSpace(text)
+	if n := utf8.RuneCountInString(text); n > siteNoticeMaxRunes {
+		return "", fmt.Errorf("公告不能超过 %d 字,当前 %d 字", siteNoticeMaxRunes, n)
+	}
+	if err := SetSetting(db, SiteNoticeKey, text); err != nil {
+		return "", err
+	}
+	return text, nil
 }

@@ -91,6 +91,8 @@ export function validateActivityDates(start: string, end: string): { start?: str
 export interface ActivityDraft {
   instance: number
   id?: number
+  /** 复制来源的活动 ID,仅用于对话框提示;提交时不发送。 */
+  copiedFrom?: number
   claimedCount: number
   title: string
   description: string
@@ -116,6 +118,33 @@ export function makeActivityDraft(instance: number, activity?: AdminActivity, no
     stockText: activity ? String(activity.total_count) : '', limitText: String(activity?.per_user_limit ?? 1), trustText: String(activity?.min_trust_level ?? 0),
     startText: formatActivityLocal(start), endText: formatActivityLocal(end), originalStart: start, originalEnd: end, status: activity?.status ?? 1,
   }
+}
+
+/**
+ * 复制活动:沿用内容、面值与规则,清掉身份、领取进度和开放时间,标题加「（副本）」。
+ * 时间留空会被 prepareActivity 拦下,站长必须重新填写才能保存,避免复制出一个已过期的活动。
+ */
+export function makeActivityCopyDraft(instance: number, source: AdminActivity): ActivityDraft {
+  return {
+    ...makeActivityDraft(instance, source),
+    id: undefined, copiedFrom: source.id, claimedCount: 0,
+    title: `${source.title}（副本）`,
+    startText: '', endText: '', originalStart: undefined, originalEnd: undefined,
+  }
+}
+
+export const NOTICE_MAX_CHARS = 500
+
+/** 按码点计数,与服务端 utf8.RuneCountInString 口径一致:一个 emoji 算一个字。 */
+export function noticeLength(text: string): number {
+  return [...text.trim()].length
+}
+
+export function validateNotice(text: string): Parsed<string> {
+  const value = text.trim()
+  const length = [...value].length
+  if (length > NOTICE_MAX_CHARS) return { error: `公告最多 ${NOTICE_MAX_CHARS} 字，当前 ${length} 字。` }
+  return { value }
 }
 
 export function prepareActivity(draft: ActivityDraft): { errors: Record<string, string | undefined>; payload?: ActivityPayload } {

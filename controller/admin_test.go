@@ -24,12 +24,15 @@ func adminRoutes(app *App) *gin.Engine {
 	admin.GET("/admin/dashboard", app.AdminDashboard)
 	admin.GET("/admin/checkin-config", app.AdminGetCheckinConfig)
 	admin.PUT("/admin/checkin-config", app.AdminPutCheckinConfig)
+	admin.GET("/admin/site-notice", app.AdminGetSiteNotice)
+	admin.PUT("/admin/site-notice", app.AdminPutSiteNotice)
 	admin.GET("/admin/activities", app.AdminListActivities)
 	admin.POST("/admin/activities", app.AdminCreateActivity)
 	admin.GET("/admin/activities/:id/claims", app.AdminListClaims)
 	admin.PUT("/admin/activities/:id", app.AdminUpdateActivity)
 	admin.DELETE("/admin/activities/:id", app.AdminDeleteActivity)
 	admin.GET("/admin/grants", app.AdminListGrants)
+	admin.GET("/admin/grants/export", app.AdminExportGrants)
 	admin.POST("/admin/grants/:id/retry", app.AdminRetryGrant)
 	admin.POST("/admin/grants/manual", app.AdminManualGrant)
 	admin.GET("/admin/users", app.AdminListUsers)
@@ -61,12 +64,15 @@ func TestAdminRoutesRejectNonAdmin(t *testing.T) {
 		{http.MethodGet, "/api/admin/dashboard"},
 		{http.MethodGet, "/api/admin/checkin-config"},
 		{http.MethodPut, "/api/admin/checkin-config"},
+		{http.MethodGet, "/api/admin/site-notice"},
+		{http.MethodPut, "/api/admin/site-notice"},
 		{http.MethodGet, "/api/admin/activities"},
 		{http.MethodPost, "/api/admin/activities"},
 		{http.MethodGet, "/api/admin/activities/1/claims"},
 		{http.MethodPut, "/api/admin/activities/1"},
 		{http.MethodDelete, "/api/admin/activities/1"},
 		{http.MethodGet, "/api/admin/grants"},
+		{http.MethodGet, "/api/admin/grants/export"},
 		{http.MethodPost, "/api/admin/grants/1/retry"},
 		{http.MethodPost, "/api/admin/grants/manual"},
 		{http.MethodGet, "/api/admin/users"},
@@ -166,13 +172,15 @@ func TestAdminWorkflow(t *testing.T) {
 		t.Fatalf("users: %d", rec.Code)
 	}
 	var usersResp struct {
-		Data []model.User `json:"data"`
+		Data struct {
+			Items []model.User `json:"items"`
+		} `json:"data"`
 	}
 	json.Unmarshal(rec.Body.Bytes(), &usersResp)
-	if len(usersResp.Data) == 0 {
+	if len(usersResp.Data.Items) == 0 {
 		t.Fatalf("expected users found by keyword")
 	}
-	uid := usersResp.Data[0].ID
+	uid := usersResp.Data.Items[0].ID
 	rec = performJSON(adminRoutes(app), http.MethodPut, fmt.Sprintf("/api/admin/users/%d/status", uid), `{"status":2}`, cookie)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("toggle status: %d %s", rec.Code, rec.Body.String())

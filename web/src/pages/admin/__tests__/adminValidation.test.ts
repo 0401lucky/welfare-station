@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AdminActivity, DrawTier } from '@/lib/api'
-import { formatActivityLocal, makeActivityDraft, parseActivityLocal, parseAdminInteger, parseAdminOpeningTime, parseStreakBonuses, prepareActivity, validateActivityDates, validateDrawTiers } from '../adminValidation'
+import { formatActivityLocal, makeActivityCopyDraft, makeActivityDraft, noticeLength, parseActivityLocal, parseAdminInteger, parseAdminOpeningTime, parseStreakBonuses, prepareActivity, validateActivityDates, validateDrawTiers, validateNotice } from '../adminValidation'
 
 describe('admin text validation', () => {
   it('keeps fractional streak bonuses and accepts a trailing decimal without rewriting input', () => {
@@ -71,6 +71,31 @@ describe('editable activity dates and payload', () => {
     expect(prepareActivity({ ...draft, quota: 0 }).payload).toBeUndefined()
     expect(prepareActivity({ ...draft, limitText: '' }).payload?.per_user_limit).toBe(1)
     expect(prepareActivity({ ...draft, limitText: '0' }).payload?.per_user_limit).toBe(0)
+  })
+
+  it('复制活动沿用内容与规则,清掉身份、领取进度和时间,时间不填不能保存', () => {
+    const source: AdminActivity = { id: 5, title: '周末加餐', description: '说明', quota: 500, total_count: 9, claimed_count: 6, per_user_limit: 2, min_trust_level: 1, status: 2, start_at: '2026-09-12T09:30:00+08:00', end_at: '2026-09-13T09:30:00+08:00', created_at: '', updated_at: '' }
+    const copy = makeActivityCopyDraft(7, source)
+    expect(copy).toMatchObject({ instance: 7, id: undefined, copiedFrom: 5, claimedCount: 0, title: '周末加餐（副本）', description: '说明', quota: 500, stockText: '9', limitText: '2', trustText: '1', status: 2, startText: '', endText: '', originalStart: undefined, originalEnd: undefined })
+
+    const untouched = prepareActivity(copy)
+    expect(untouched.payload).toBeUndefined()
+    expect(untouched.errors.start).toBe('请填写时间。')
+    expect(untouched.errors.end).toBe('请填写时间。')
+    // 副本没有领取记录,总份数只受正整数约束,可以低于原活动已领取的 6 份。
+    expect(prepareActivity({ ...copy, stockText: '5', startText: '2026-10-01T10:00', endText: '2026-10-02T10:00' }).payload).toMatchObject({ title: '周末加餐（副本）', total_count: 5, status: 2 })
+    expect(source.title).toBe('周末加餐')
+  })
+})
+
+describe('站点公告长度', () => {
+  it('按码点计数并去首尾空白,500 字可存、501 字拒绝', () => {
+    expect(noticeLength('  🍀 今晚加倍  ')).toBe(6)
+    expect(validateNotice('  今晚加倍 \n')).toEqual({ value: '今晚加倍' })
+    expect(validateNotice('字'.repeat(500)).value).toHaveLength(500)
+    expect(validateNotice('🍀'.repeat(500)).error).toBeUndefined()
+    expect(validateNotice('字'.repeat(501)).error).toContain('501')
+    expect(validateNotice('')).toEqual({ value: '' })
   })
 })
 

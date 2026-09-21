@@ -1,4 +1,4 @@
-import type { GrantRecord } from '@/lib/api'
+import type { AdminActivity, GrantRecord } from '@/lib/api'
 
 export const adminTabs = ['dashboard', 'config', 'game', 'draw', 'activities', 'grants', 'users', 'manual'] as const
 export type AdminTab = typeof adminTabs[number]
@@ -72,4 +72,30 @@ export function grantSourceLabel(type: string): string { return grantSources.fin
 export function grantStatusLabel(status: string): string { return grantStatuses.find(item => item.value === status)?.label ?? status }
 export function isStalePending(grant: Pick<GrantRecord, 'status' | 'updated_at'>, now = Date.now()): boolean {
   return grant.status === 'pending' && now - new Date(grant.updated_at).getTime() > 10 * 60 * 1000
+}
+
+/** 导出地址只带筛选条件,不带分页:导出的就是筛出来的全部(服务端上限 10000 行)。 */
+export function grantExportUrl(filters: Pick<GrantFilters, 'search' | 'status' | 'type'>): string {
+  const params = new URLSearchParams()
+  if (filters.search.trim()) params.set('search', filters.search.trim())
+  if (filters.status) params.set('status', filters.status)
+  if (filters.type) params.set('type', filters.type)
+  const query = params.toString()
+  return `/api/admin/grants/export${query ? `?${query}` : ''}`
+}
+
+export type ActivityPhase = 'off' | 'upcoming' | 'live' | 'ended'
+export const activityPhaseLabels: Record<ActivityPhase, string> = { off: '下架', upcoming: '未开始', live: '进行中', ended: '已结束' }
+
+/**
+ * 活动所处阶段,与服务端 ActivityClaimAvailability 的判定顺序一致:先看上下架,
+ * 再看时间窗;边界时刻(恰好开始 / 恰好结束)按进行中,与服务端的严格比较对齐。
+ */
+export function activityPhase(activity: Pick<AdminActivity, 'status' | 'start_at' | 'end_at'>, now = Date.now()): ActivityPhase {
+  if (activity.status !== 1) return 'off'
+  const end = Date.parse(activity.end_at)
+  if (Number.isFinite(end) && end < now) return 'ended'
+  const start = Date.parse(activity.start_at)
+  if (Number.isFinite(start) && start > now) return 'upcoming'
+  return 'live'
 }
