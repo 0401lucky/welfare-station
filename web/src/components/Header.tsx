@@ -82,7 +82,8 @@ export default function Header() {
 
   return (
     <header className="glass sticky top-0 z-40">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4">
+      {/* 小屏用更窄的列间距:主题切换按钮占掉 44px 后,375px 下 gap-3 会把页头撑出横向滚动。 */}
+      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-1 px-4 sm:gap-3">
         <Link to="/" className="flex items-center gap-2" aria-label="福利站首页">
           <span className="animate-sway"><Clover size={30} /></span>
           <span className="title-kai hidden text-xl sm:block">{site?.site_name ?? '福利站'}</span>
@@ -120,7 +121,8 @@ export default function Header() {
               <span className="hidden max-w-28 truncate text-sm text-clover-700 md:inline">
                 {me.user.display_name || me.user.linux_do_name}
               </span>
-              <Button variant="ghost" size="sm" onClick={logout}>退出</Button>
+              {/* 小屏收窄内边距:主题按钮占掉 44px 后,375px 下这一簇会顶穿页头宽度。 */}
+              <Button variant="ghost" size="sm" className="px-2.5 sm:px-4" onClick={logout}>退出</Button>
             </div>
           ) : (
             <a href="/api/oauth/linuxdo">

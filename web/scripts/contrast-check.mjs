@@ -47,6 +47,8 @@ const pairs = [
   ['white', 'clover-solid', '按钮白字 / 实心绿', 3.0, false],
   ['white', 'clover-solid-soft', '按钮白字 / 主色绿', 3.0, false],
   ['white', 'clover-solid-strong', '按钮白字 / 深绿 hover', 3.0, false],
+  ['white', 'gradient-from', '主按钮渐变起点的白字', 3.0, false],
+  ['white', 'gradient-to', '主按钮渐变终点的白字', 3.0, false],
   ['white', 'destructive', '按钮白字 / 危险红', 3.0, false],
 ]
 

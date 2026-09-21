@@ -42,7 +42,7 @@ export function Clover({
           strokeWidth="2.4"
           strokeLinecap="round"
           fill="none"
-          style={{ stroke: 'rgb(var(--c-clover-600))' }}
+          style={{ stroke: 'rgb(var(--c-clover-stem))' }}
         />
       )}
       {[0, 90, 180, 270].map((deg, i) => (

@@ -64,7 +64,9 @@ export default {
         card: '0 8px 32px -14px rgba(31, 106, 68, 0.18), 0 2px 8px -4px rgba(31, 106, 68, 0.08)',
       },
       backgroundImage: {
-        'clover-gradient': 'linear-gradient(135deg, #35a465 0%, #268552 100%)',
+        // 主按钮渐变也走变量:浅色与改造前一致,深色压深以保住白字对比度。
+        'clover-gradient': 'linear-gradient(135deg, rgb(var(--c-gradient-from)) 0%, rgb(var(--c-gradient-to)) 100%)',
+        // 进度条是装饰性色带,深色下同样清晰,保持固定值。
         'lucky-bar': 'linear-gradient(90deg, #5bbc82 0%, #8fd6a8 45%, #ddb45f 100%)',
       },
       keyframes: {

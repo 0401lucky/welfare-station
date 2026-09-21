@@ -22,6 +22,11 @@
   --c-clover-solid: 31 106 68;
   --c-clover-solid-strong: 29 84 57;
   --c-clover-solid-soft: 38 133 82;
+  /* 四叶草茎杆:这个绿不在色板九级里(#3aa869),单开一个变量保住浅色原样。 */
+  --c-clover-stem: 58 168 105;
+  /* 主按钮渐变:浅色与改造前完全一致;深色单独压深,保证白字对比度。 */
+  --c-gradient-from: 53 164 101;
+  --c-gradient-to: 38 133 82;
   --c-gold-300: 238 217 164;
   --c-gold-400: 221 180 95;
   --c-gold-500: 201 150 58;
@@ -65,9 +70,15 @@
   --c-clover-800: 185 222 199;
   --c-clover-900: 216 236 224;
   --c-clover-ink: 217 235 223;
-  --c-clover-solid: 43 125 83;
-  --c-clover-solid-strong: 37 110 73;
+  /* 三档必须互不相同且依次加深:Button 默认态用 soft、hover 用 solid;
+     ActionLink 用 solid、hover 用 strong。同值或倒序会让深色下的 hover 没有反馈。
+     三档与白字的对比度分别为 5.05 / 6.59 / 8.22。 */
+  --c-clover-solid: 36 108 71;
+  --c-clover-solid-strong: 29 90 59;
   --c-clover-solid-soft: 43 125 83;
+  --c-clover-stem: 63 184 119;
+  --c-gradient-from: 43 125 83;
+  --c-gradient-to: 33 100 66;
   --c-gold-300: 74 63 35;
   --c-gold-400: 142 112 54;
   --c-gold-500: 201 150 58;
