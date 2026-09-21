@@ -147,7 +147,7 @@ function BindingContent({ self }: { self: ReturnType<typeof useMe> }) {
               </div>
             </section>
             <aside className="border-t border-clover-100 bg-clover-50/60 p-5 sm:p-7 md:border-l md:border-t-0">
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-clover-200 bg-white/90"><Clover size={30} stem={false} /></div>
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-clover-200 bg-surface/90"><Clover size={30} stem={false} /></div>
               <h2 className="font-semibold text-clover-900">下一片好运，在小站等你</h2>
               <p className="mt-3 text-sm leading-7 text-clover-700">回首页查看今日签到、幸运翻牌和福利活动。每笔奖励的额度与到账状态，都可以在「我的记录」里找到。</p>
               <p className="mt-5 flex items-start gap-2 text-sm leading-6 text-clover-700"><ShieldCheck size={17} className="mt-0.5 shrink-0" aria-hidden="true" />已连接的账号会自动用于奖励发放。</p>

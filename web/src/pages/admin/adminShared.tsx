@@ -110,7 +110,7 @@ export function useAdminMoneyValidity() {
 export function AdminSaveBar({ formId, dirty, pending, savedAt, invalid, onReset }: {
   formId: string; dirty: boolean; pending: boolean; savedAt: number | null; invalid: boolean; onReset: () => void
 }) {
-  return <div className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-clover-200 bg-white/95 px-4 py-3 shadow-card backdrop-blur-sm">
+  return <div className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-clover-200 bg-surface/95 px-4 py-3 shadow-card backdrop-blur-sm">
     <div className="min-w-0 text-sm text-clover-800" role="status">
       <p className="flex items-center gap-1.5 font-medium">{pending ? <Spinner size={15} /> : !dirty ? <CheckCircle2 size={15} aria-hidden="true" /> : null}{pending ? '正在保存本次提交…' : dirty ? '有未保存的修改' : savedAt ? '已保存，当前与服务端一致' : '当前为已保存设置'}</p>
       {savedAt && <p className="mt-1 text-xs text-clover-700">最近保存 {new Date(savedAt).toLocaleTimeString('zh-CN', { hour12: false })}{dirty ? ' · 后续修改仍保留在草稿中' : ''}</p>}

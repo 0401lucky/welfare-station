@@ -5,6 +5,7 @@ import { LogIn, Gamepad2, ScrollText, Settings2, Sprout, Timer } from 'lucide-re
 import { useMe, useSiteInfo } from '@/hooks/useMe'
 import { api, User } from '@/lib/api'
 import { Clover } from '@/components/Clover'
+import ThemeToggle from '@/components/ThemeToggle'
 import { toast } from '@/components/Toast'
 import Quota from './Quota'
 import { Button } from './ui'
@@ -95,6 +96,7 @@ export default function Header() {
         </nav>
 
         <div className="flex items-center gap-2.5">
+          <ThemeToggle />
           {me?.newapi_balance != null && (
             <span className="hidden items-center gap-1 rounded-full border border-gold-300 bg-cream px-3 py-1 text-sm font-medium text-gold-600 sm:flex">
               <Quota value={me.newapi_balance} />

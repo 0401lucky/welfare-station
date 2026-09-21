@@ -2,6 +2,101 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * 色板变量:每个值是 "R G B",Tailwind 用 <alpha-value> 消费。
+ * :root 的取值与深色改造前的十六进制一一对应(浅色模式必须零视觉变化);
+ * .dark 覆盖为深色版。改色只改这里。
+ */
+:root {
+  --c-clover-50: 240 249 242;
+  --c-clover-100: 220 241 226;
+  --c-clover-200: 188 227 201;
+  --c-clover-300: 143 214 168;
+  --c-clover-400: 91 188 130;
+  --c-clover-500: 53 164 101;
+  --c-clover-600: 38 133 82;
+  --c-clover-700: 31 106 68;
+  --c-clover-800: 29 84 57;
+  --c-clover-900: 25 70 48;
+  --c-clover-ink: 28 74 50;
+  --c-clover-solid: 31 106 68;
+  --c-clover-solid-strong: 29 84 57;
+  --c-clover-solid-soft: 38 133 82;
+  --c-gold-300: 238 217 164;
+  --c-gold-400: 221 180 95;
+  --c-gold-500: 201 150 58;
+  --c-gold-600: 176 127 39;
+  --c-surface: 255 255 255;
+  --c-cream: 250 246 232;
+  --c-border: 220 234 223;
+  --c-background: 242 248 240;
+  --c-foreground: 28 74 50;
+  --c-muted: 232 242 234;
+  --c-muted-foreground: 95 135 112;
+  --c-card: 255 255 255;
+  --c-card-foreground: 28 74 50;
+  --c-primary: 38 133 82;
+  --c-primary-foreground: 255 255 255;
+  --c-destructive: 212 87 78;
+  --c-destructive-foreground: 255 255 255;
+  --c-ring: 91 188 130;
+  --c-input: 207 228 213;
+  --glass-bg: rgb(255 255 255 / 0.72);
+  --glass-border: rgb(188 227 201 / 0.55);
+  --selection-bg: rgb(91 188 130 / 0.35);
+  /* 2048 棋盘方块:浅色与色板一一对应,深色单独压深,保证白字 ≥4.5:1 */
+  --c-tile-32: 91 188 130;
+  --c-tile-64: 53 164 101;
+  --c-tile-128: 38 133 82;
+  --c-tile-256: 31 106 68;
+  --c-tile-1024: 221 180 95;
+}
+
+.dark {
+  /* 深绿灰底 + 提亮的 700+ 文字绿;实心按钮单独一套,白字在其上仍有 ≥4.5:1 */
+  --c-clover-50: 17 28 22;
+  --c-clover-100: 28 45 35;
+  --c-clover-200: 44 68 53;
+  --c-clover-300: 76 116 92;
+  --c-clover-400: 98 158 122;
+  --c-clover-500: 63 184 119;
+  --c-clover-600: 47 154 99;
+  --c-clover-700: 132 199 162;
+  --c-clover-800: 185 222 199;
+  --c-clover-900: 216 236 224;
+  --c-clover-ink: 217 235 223;
+  --c-clover-solid: 43 125 83;
+  --c-clover-solid-strong: 37 110 73;
+  --c-clover-solid-soft: 43 125 83;
+  --c-gold-300: 74 63 35;
+  --c-gold-400: 142 112 54;
+  --c-gold-500: 201 150 58;
+  --c-gold-600: 221 180 95;
+  --c-surface: 22 36 28;
+  --c-cream: 35 34 24;
+  --c-border: 58 82 66;
+  --c-background: 15 26 20;
+  --c-foreground: 217 235 223;
+  --c-muted: 30 44 35;
+  --c-muted-foreground: 148 176 158;
+  --c-card: 22 36 28;
+  --c-card-foreground: 217 235 223;
+  --c-primary: 43 125 83;
+  --c-primary-foreground: 255 255 255;
+  --c-destructive: 224 112 95;
+  --c-destructive-foreground: 255 255 255;
+  --c-ring: 63 184 119;
+  --c-input: 58 82 66;
+  --glass-bg: rgb(22 36 28 / 0.78);
+  --glass-border: rgb(58 82 66 / 0.6);
+  --selection-bg: rgb(63 184 119 / 0.4);
+  --c-tile-32: 58 122 84;
+  --c-tile-64: 52 112 76;
+  --c-tile-128: 43 125 83;
+  --c-tile-256: 43 125 83;
+  --c-tile-1024: 142 112 54;
+}
+
 @layer base {
   * {
     @apply border-border;
@@ -23,8 +118,17 @@
     min-height: 100vh;
   }
 
+  /* 深色背景:同一构图换成墨绿夜色的等值渐变,避免纯黑死板。 */
+  .dark body {
+    background:
+      radial-gradient(1100px 640px at 8% -4%, rgba(63, 184, 119, 0.16), transparent 60%),
+      radial-gradient(900px 560px at 96% 4%, rgba(201, 150, 58, 0.12), transparent 58%),
+      radial-gradient(760px 640px at 88% 88%, rgba(47, 154, 99, 0.12), transparent 60%),
+      linear-gradient(160deg, #0c1712 0%, #0f1a14 48%, #12190f 100%);
+  }
+
   ::selection {
-    background: rgba(91, 188, 130, 0.35);
+    background: var(--selection-bg);
   }
 }
 
@@ -38,10 +142,10 @@
 @layer utilities {
   /* 玻璃顶栏 / 玻璃卡 */
   .glass {
-    background: rgba(255, 255, 255, 0.72);
+    background: var(--glass-bg);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    border-bottom: 1px solid rgba(188, 227, 201, 0.55);
+    border-bottom: 1px solid var(--glass-border);
   }
 
   /* 书法标题:墨绿 */
@@ -56,18 +160,23 @@
     @apply bg-clip-text text-transparent;
   }
 
+  .dark .word-gold {
+    /* 深色下把金色整体提亮一档,保证在深底上仍像"金字"。 */
+    background-image: linear-gradient(120deg, #eed9a4 10%, #ddb45f 55%, #f3e6c4 90%);
+  }
+
   .text-clover-gradient {
-    background-image: linear-gradient(120deg, #268552, #5bbc82);
+    background-image: linear-gradient(120deg, rgb(var(--c-clover-600)), rgb(var(--c-clover-400)));
     @apply bg-clip-text text-transparent;
   }
 
   /* 虚线圆环(主视觉 logo 外圈) */
   .ring-dashed {
-    border: 2px dashed rgba(53, 164, 101, 0.5);
+    border: 2px dashed rgb(var(--c-clover-500) / 0.5);
   }
 
   .card-leaf {
-    @apply rounded-3xl border border-clover-100 bg-white/85 shadow-card backdrop-blur-sm;
+    @apply rounded-3xl border border-clover-100 bg-surface/85 shadow-card backdrop-blur-sm;
   }
 
   /* 页面载入的分级淡入 */

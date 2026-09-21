@@ -39,7 +39,7 @@ export function HomeLeaderboard({ me }: { me?: SelfInfo }) {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><h2 id="leaderboard-heading" className="flex items-center gap-2 text-xl font-bold text-clover-900"><Trophy size={22} className="text-gold-600" aria-hidden="true" />本周好运榜</h2><p className="text-xs text-clover-700">{current.hint}</p></div>
         <div className="flex items-center gap-1.5" role="group" aria-label="切换榜单">
-          {kinds.map((item) => <button key={item.value} type="button" aria-pressed={kind === item.value} onClick={() => setKind(item.value)} className={cn('min-h-11 rounded-full px-3.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500 sm:text-sm', kind === item.value ? 'bg-clover-700 font-medium text-white' : 'bg-white/60 text-clover-700 hover:bg-clover-100')}>{item.label}</button>)}
+          {kinds.map((item) => <button key={item.value} type="button" aria-pressed={kind === item.value} onClick={() => setKind(item.value)} className={cn('min-h-11 rounded-full px-3.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500 sm:text-sm', kind === item.value ? 'bg-clover-solid font-medium text-white' : 'bg-surface/60 text-clover-700 hover:bg-clover-100')}>{item.label}</button>)}
         </div>
       </div>
       <SitePanel className="p-4 sm:p-5" aria-busy={query.isFetching || undefined}>

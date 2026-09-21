@@ -21,7 +21,12 @@
 }
 
 .site-hero-scrim {
-  background: linear-gradient(90deg, theme('colors.cream') 0%, rgb(250 246 232 / 92%) 28%, rgb(250 246 232 / 20%) 76%, transparent 100%);
+  background: linear-gradient(90deg, rgb(var(--c-cream)) 0%, rgb(var(--c-cream) / 92%) 28%, rgb(var(--c-cream) / 20%) 76%, transparent 100%);
+}
+
+/* 深色下压暗插画,并让遮罩延续深色渐变,避免浅色插画在夜色里刺眼。 */
+.dark .site-hero-art {
+  filter: brightness(0.72) saturate(0.85);
 }
 
 .site-summary::-webkit-details-marker {
@@ -54,7 +59,7 @@ details[open] > .site-summary > svg {
   }
 
   .site-hero-scrim {
-    background: linear-gradient(90deg, rgb(250 246 232 / 96%) 0%, rgb(250 246 232 / 84%) 30%, rgb(250 246 232 / 16%) 64%, transparent 82%);
+    background: linear-gradient(90deg, rgb(var(--c-cream) / 96%) 0%, rgb(var(--c-cream) / 84%) 30%, rgb(var(--c-cream) / 16%) 64%, transparent 82%);
   }
 }
 

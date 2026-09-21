@@ -212,7 +212,7 @@ function RecordsLedger({ user }: { user: User }) {
         )}
       </SitePanel>
 
-      <aside className="mt-5 flex items-start gap-2.5 rounded-2xl border border-clover-100 bg-white/60 p-4 text-sm leading-6 text-clover-700" aria-label="额度记录说明">
+      <aside className="mt-5 flex items-start gap-2.5 rounded-2xl border border-clover-100 bg-surface/60 p-4 text-sm leading-6 text-clover-700" aria-label="额度记录说明">
         <Info size={17} className="mt-1 shrink-0" aria-hidden="true" />
         <div><p>记录中的额度是每笔奖励的发放额度，当前可用余额请查看钱包。</p><p className="mt-1">限时额度在实际到账当天（北京时间）有效，次日 00:00 失效；历史记录不表示额度仍然可用。</p></div>
       </aside>

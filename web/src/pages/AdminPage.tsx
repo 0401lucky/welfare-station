@@ -237,7 +237,7 @@ function GameTab() {
               type="button"
               aria-pressed={selectedGame === game.id}
               onClick={() => { setSelectedGame(game.id); setDeletingTier(null) }}
-              className={cn('flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500', selectedGame === game.id ? 'border-clover-500 bg-clover-600 font-medium text-white' : 'border-clover-100 bg-white text-clover-700 hover:bg-clover-50')}
+              className={cn('flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500', selectedGame === game.id ? 'border-clover-500 bg-clover-solid-soft font-medium text-white' : 'border-clover-100 bg-surface text-clover-700 hover:bg-clover-50')}
             >
               {game.id === 'watermelon' ? <img src="/assets/games/watermelon/fruits/watermelon.webp" alt="" className="h-7 w-7 object-contain" /> : <Gamepad2 size={18} />}
               {game.label}
@@ -279,7 +279,7 @@ function GameTab() {
                   'min-h-11 rounded-full border px-4 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500',
                   (rules?.reward_type ?? 'permanent') === value
                     ? 'border-transparent bg-clover-gradient text-white shadow-leaf-sm'
-                    : 'border-clover-100 bg-white/80 text-clover-700 hover:bg-clover-50',
+                    : 'border-clover-100 bg-surface/80 text-clover-700 hover:bg-clover-50',
                 )}
               >
                 {label}
@@ -432,7 +432,7 @@ function GameTab() {
         </div>
       </Card>
 
-      <div className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-clover-200 bg-white/95 px-4 py-3 shadow-card backdrop-blur-sm">
+      <div className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-clover-200 bg-surface/95 px-4 py-3 shadow-card backdrop-blur-sm">
         <p className="text-xs leading-5 text-clover-700" role="status">{save.isPending ? '正在保存当前设置…' : hasDraft ? '有未保存的修改' : '游戏与预算设置已同步'}<span className="block text-[11px] text-muted-foreground">一次保存，两款游戏与共享预算一并生效</span></p>
         <Button variant={hasDraft ? 'gradient' : 'outline'} className="min-h-11" disabled={!hasDraft || save.isPending} onClick={() => save.mutate(localCfg)}>
           {save.isPending ? <Spinner size={16} /> : <CheckCircle2 size={16} />} 保存游戏与预算设置

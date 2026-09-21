@@ -112,7 +112,7 @@ export function SiteDialog({
         aria-describedby={description ? descriptionId : role === 'alertdialog' && children ? contentId : undefined}
         aria-busy={loading || undefined}
         tabIndex={-1}
-        className={cn('flex max-h-[calc(100dvh-1.5rem)] w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-clover-200 bg-white shadow-leaf outline-none sm:max-h-[calc(100dvh-3rem)]', widths[size], className)}
+        className={cn('flex max-h-[calc(100dvh-1.5rem)] w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-clover-200 bg-surface shadow-leaf outline-none sm:max-h-[calc(100dvh-3rem)]', widths[size], className)}
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-clover-100 px-5 py-4 sm:px-6">
           <div className="min-w-0">
@@ -169,7 +169,7 @@ export function SiteConfirmDialog({
       initialFocusRef={cancelRef}
       footer={(
         <div className="flex flex-wrap justify-end gap-2">
-          <button ref={cancelRef} type="button" className="min-h-11 rounded-full border border-clover-200 bg-white px-5 text-sm font-medium text-clover-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500 disabled:opacity-45" disabled={loading} onClick={onCancel}>
+          <button ref={cancelRef} type="button" className="min-h-11 rounded-full border border-clover-200 bg-surface px-5 text-sm font-medium text-clover-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500 disabled:opacity-45" disabled={loading} onClick={onCancel}>
             {cancelText}
           </button>
           <Button

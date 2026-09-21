@@ -132,4 +132,13 @@ func registerFrontend(r *gin.Engine) {
 	r.GET("/favicon.svg", func(c *gin.Context) {
 		fileServer.ServeHTTP(c.Writer, c.Request)
 	})
+	// PWA 资源必须显式注册,否则会被 SPA fallback 当成客户端路由吞掉(返回 index.html)。
+	// .webmanifest 的 MIME 不在 Go 标准表里,这里手动补上。
+	r.GET("/manifest.webmanifest", func(c *gin.Context) {
+		c.Header("Content-Type", "application/manifest+json")
+		fileServer.ServeHTTP(c.Writer, c.Request)
+	})
+	r.GET("/icons/*filepath", func(c *gin.Context) {
+		fileServer.ServeHTTP(c.Writer, c.Request)
+	})
 }

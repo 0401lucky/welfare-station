@@ -11,8 +11,8 @@ import { cn } from '@/lib/utils'
 export function Clover({
   size = 24,
   className,
-  petal = '#35a465',
-  petalAlt = '#5bbc82',
+  petal = 'rgb(var(--c-clover-500))',
+  petalAlt = 'rgb(var(--c-clover-400))',
   stem = true,
 }: {
   size?: number
@@ -25,6 +25,8 @@ export function Clover({
   // 起笔从尖端往左外扩到左裂片顶,过中间的凹口,再对称回到尖端。
   const leaf =
     'M0,0 C-3.6,-4.2 -8.2,-6.0 -11.4,-6.0 C-16.4,-6.0 -19.6,-9.8 -19.6,-14.0 C-19.6,-18.4 -16.0,-21.4 -11.6,-21.4 C-6.4,-21.4 -2.2,-17.6 -1.1,-12.4 C-0.7,-10.6 -0.3,-7.6 0,-4.6 C0.3,-7.6 0.7,-10.6 1.1,-12.4 C2.2,-17.6 6.4,-21.4 11.6,-21.4 C16.0,-21.4 19.6,-18.4 19.6,-14.0 C19.6,-9.8 16.4,-6.0 11.4,-6.0 C8.2,-6.0 3.6,-4.2 0,0 Z'
+  // 颜色走内联 style 而不是 fill/stroke 属性:SVG 表现属性不支持 var(),
+  // 而色板已经完全变量化(深色模式靠变量翻转),属性形式会把叶子渲染成 none。
   return (
     <svg
       width={size}
@@ -37,15 +39,15 @@ export function Clover({
       {stem && (
         <path
           d="M0.6 3 C1.6 11 3.4 18 7.6 23.2"
-          stroke="#3aa869"
           strokeWidth="2.4"
           strokeLinecap="round"
           fill="none"
+          style={{ stroke: 'rgb(var(--c-clover-600))' }}
         />
       )}
       {[0, 90, 180, 270].map((deg, i) => (
         <g key={deg} transform={`rotate(${deg})`}>
-          <path d={leaf} fill={i % 2 === 0 ? petal : petalAlt} />
+          <path d={leaf} style={{ fill: i % 2 === 0 ? petal : petalAlt }} />
         </g>
       ))}
     </svg>
@@ -60,7 +62,7 @@ export function CloverEmblem({ size = 120, className }: { size?: number; classNa
       style={{ width: size, height: size }}
     >
       <div className="ring-dashed absolute inset-0 animate-spin-slow rounded-full" />
-      <div className="absolute inset-[9%] rounded-full bg-white/80 shadow-leaf-sm" />
+      <div className="absolute inset-[9%] rounded-full bg-surface/80 shadow-leaf-sm" />
       <Clover size={size * 0.58} className="relative animate-sway" />
     </div>
   )
@@ -111,7 +113,7 @@ export function CloverRain({ seed }: { seed: number }) {
           transition={{ duration: d.duration, delay: d.delay, ease: 'easeIn' }}
         >
           {d.gold ? (
-            <Clover size={d.size} stem={false} petal="#ddb45f" petalAlt="#eed9a4" />
+            <Clover size={d.size} stem={false} petal="rgb(var(--c-gold-400))" petalAlt="rgb(var(--c-gold-300))" />
           ) : (
             <Clover size={d.size} stem={false} />
           )}

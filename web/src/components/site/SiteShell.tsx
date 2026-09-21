@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ExternalLink, Gamepad2, LogIn, LogOut, ScrollText, Settings2, Sprout, Timer, Wallet } from 'lucide-react'
 import { Clover } from '@/components/Clover'
+import ThemeToggle from '@/components/ThemeToggle'
 import Quota from '@/components/Quota'
 import { Button, Spinner } from '@/components/ui'
 import { toast } from '@/components/Toast'
@@ -85,7 +86,7 @@ function SiteHeader({ width }: { width: SiteWidth }) {
 
   return (
     <header className="glass sticky top-0 z-40">
-      <a href="#site-main" className="sr-only z-50 rounded-full bg-white px-4 py-3 text-clover-900 focus:not-sr-only focus:absolute focus:left-4 focus:top-3">跳到页面内容</a>
+      <a href="#site-main" className="sr-only z-50 rounded-full bg-surface px-4 py-3 text-clover-900 focus:not-sr-only focus:absolute focus:left-4 focus:top-3">跳到页面内容</a>
       <div className={cn('mx-auto grid min-h-16 grid-cols-[1fr_auto] items-center gap-x-3 px-4 lg:grid-cols-[1fr_auto_1fr] lg:gap-x-6', width === 'admin' ? 'max-w-[1440px]' : 'max-w-6xl')}>
         <Link to="/" className="flex w-fit min-w-0 items-center gap-2 rounded-lg py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500" aria-label={`${site?.site_name || '福利站'}首页`}>
           <Clover size={32} stem={false} />
@@ -98,6 +99,7 @@ function SiteHeader({ width }: { width: SiteWidth }) {
           })}
         </nav>
         <div className="flex min-w-0 items-center justify-end gap-2">
+          <ThemeToggle />
           {me?.newapi_balance != null && (
             <Link to="/records" className="hidden max-w-40 items-center gap-1.5 rounded-full border border-gold-300/70 bg-cream px-3 py-2 text-xs text-clover-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500 xl:flex">
               <Wallet size={14} aria-hidden="true" /><span>钱包</span><Quota value={me.newapi_balance} className="truncate font-semibold tabular-nums" />
@@ -113,7 +115,7 @@ function SiteHeader({ width }: { width: SiteWidth }) {
                 <ChevronDown size={15} className={cn('shrink-0 transition-transform', accountOpen && 'rotate-180')} aria-hidden="true" />
               </button>
               {accountOpen && (
-                <div id={accountId} className="absolute right-0 top-[calc(100%+0.5rem)] w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-clover-200 bg-white shadow-leaf">
+                <div id={accountId} className="absolute right-0 top-[calc(100%+0.5rem)] w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-clover-200 bg-surface shadow-leaf">
                   <div className="border-b border-clover-100 px-4 py-3">
                     <p className="break-words font-semibold text-clover-900">{me.user.display_name || me.user.linux_do_name}</p>
                     <p className="mt-1 text-xs text-clover-700">{me.user.is_admin ? '管理员 · ' : ''}{me.bound ? `已连接 new-api #${me.user.newapi_user_id}` : '尚未连接 new-api'}</p>
@@ -158,7 +160,7 @@ export function SiteShell({ children, width = 'standard', className, contentClas
 export function SitePanel({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   // The legacy card-leaf utility sets its own background/radius after ordinary
   // utilities. Keep this opt-in surface configurable without changing game cards.
-  return <div {...props} className={cn('rounded-2xl border border-clover-100/90 bg-white/90 shadow-card backdrop-blur-sm', className)} />
+  return <div {...props} className={cn('rounded-2xl border border-clover-100/90 bg-surface/90 shadow-card backdrop-blur-sm', className)} />
 }
 
 export function SitePageHeading({ eyebrow, title, description, actions, className }: {

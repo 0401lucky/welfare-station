@@ -143,7 +143,7 @@ function CheckinCard({ view, gate, result, pending, refreshing, error, onCheckin
       {checked ? <div className="mt-4 rounded-xl border border-clover-100 bg-clover-50 px-4 py-3" role="status">
         <p className="flex items-center gap-2 text-sm font-medium text-clover-800"><CheckCircle2 size={18} aria-hidden="true" />今天的叶子已经摘过啦</p>
         {result && <div className="mt-2"><p className="flex flex-wrap items-baseline justify-between gap-2 text-sm"><span className="text-clover-700">本次签到 · {result.quota_type === 'temporary' ? '限时额度' : '永久额度'}</span><span className="font-semibold tabular-nums text-clover-900">+{formatUSD(result.quota, perUnit)}</span></p><DeliveryNote status={result.grant_status} label="签到" />{result.quota_type === 'temporary' && <p className="mt-1 text-xs leading-5 text-clover-700">限时额度在实际到账当日有效。</p>}</div>}
-      </div> : <Button type="button" size="lg" className="mt-4 w-full bg-clover-700 hover:bg-clover-800" disabled={!canCheckin} onClick={onCheckin}>
+      </div> : <Button type="button" size="lg" className="mt-4 w-full bg-clover-solid hover:bg-clover-solid-strong" disabled={!canCheckin} onClick={onCheckin}>
         {pending || refreshing ? <Spinner size={18} /> : <Clover size={19} stem={false} petal="currentColor" petalAlt="currentColor" />}
         {pending ? '正在摘取今天的叶子…' : unavailable ? '签到状态暂不可用' : waiting ? refreshing ? '正在确认签到状态…' : '请更新今日状态' : disabledByConfig ? '签到暂未开放' : notOpen ? `${rules?.available_from || '00:00'} 后开放签到` : '摘一片四叶草 · 签到'}
       </Button>}
@@ -192,7 +192,7 @@ function DrawCard({ state, gate, result, picked, view, error, queryError, refres
       </div>
 
       {result && picked == null ? <div className="mt-5 flex items-center gap-4 rounded-2xl border border-gold-300/80 bg-cream p-4" role="status">
-        <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-gold-300 bg-white/70 font-kai text-4xl tabular-nums text-gold-600" aria-label={`今日幸运数字 ${result.roll}`}>{result.roll}</div>
+        <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-gold-300 bg-surface/70 font-kai text-4xl tabular-nums text-gold-600" aria-label={`今日幸运数字 ${result.roll}`}>{result.roll}</div>
         <div className="min-w-0"><p className="text-xs text-clover-700">今天的好运已揭晓</p><h3 className="mt-1 break-words text-lg font-bold text-clover-900">{result.tier_label}</h3><p className="mt-1 text-xs leading-5 text-clover-700">今日已翻牌，结果为你保留在这里。</p></div>
       </div> : <>
         <p className="mt-5 text-center text-lg font-bold leading-7 text-clover-900 sm:text-xl">{result ? <>{result.tier_label} <span className="ml-1 font-kai text-2xl text-gold-600">{result.roll}</span></> : state === 'available' ? '翻开一片四叶草' : state === 'drawing' ? '好运正在赶来' : '今天会有怎样的好运'}</p>
@@ -214,7 +214,7 @@ function DrawCard({ state, gate, result, picked, view, error, queryError, refres
               transition={{ duration: reduced ? 0 : .25 }}
             >
               <motion.span className="block h-full w-full [transform-style:preserve-3d]" animate={{ rotateY: flipped ? 180 : 0 }} transition={{ duration: reduced ? 0 : .45 }}>
-                <span className="absolute inset-0 flex items-center justify-center rounded-xl border border-clover-200/80 bg-gradient-to-br from-clover-50 to-cream [backface-visibility:hidden]"><Clover size={31} stem={false} petal={disabled ? '#8fd6a8' : '#5bbc82'} petalAlt={disabled ? '#bce3c9' : '#8fd6a8'} /></span>
+                <span className="absolute inset-0 flex items-center justify-center rounded-xl border border-clover-200/80 bg-gradient-to-br from-clover-50 to-cream [backface-visibility:hidden]"><Clover size={31} stem={false} petal={disabled ? 'rgb(var(--c-clover-300))' : 'rgb(var(--c-clover-400))'} petalAlt={disabled ? 'rgb(var(--c-clover-200))' : 'rgb(var(--c-clover-300))'} /></span>
                 <span className="absolute inset-0 flex items-center justify-center rounded-xl border border-gold-400 bg-cream text-gold-600 [backface-visibility:hidden]" style={{ transform: 'rotateY(180deg)' }}>{drawing && !result ? <Spinner size={22} /> : <span className="font-kai text-3xl">{result?.roll}</span>}</span>
               </motion.span>
             </motion.button>
@@ -257,9 +257,9 @@ function DailySummary({ me, gate, drawState }: { me: SelfInfo; gate: CheckinGate
       <div className="order-2 flex flex-wrap items-center gap-x-4 gap-y-2 lg:order-none">
         <span className="hidden items-center gap-2 text-sm font-semibold text-clover-900 sm:flex"><Clover size={20} stem={false} />今天的好运</span>
         <ol className="flex flex-wrap items-center gap-2 text-xs sm:gap-3 sm:text-sm">
-          <li className="flex items-center gap-1.5"><span className={cn('flex h-6 w-6 items-center justify-center rounded-full', checked ? 'bg-clover-100 text-clover-700' : 'bg-clover-700 text-white')}>{checked ? <Check size={13} aria-hidden="true" /> : '1'}</span><span className="text-clover-800">{checked ? '签到完成' : gate === 'checking' || gate === 'stale' ? '确认签到状态' : gate === 'unavailable' ? '签到状态待更新' : '摘叶签到'}</span></li>
+          <li className="flex items-center gap-1.5"><span className={cn('flex h-6 w-6 items-center justify-center rounded-full', checked ? 'bg-clover-100 text-clover-700' : 'bg-clover-solid text-white')}>{checked ? <Check size={13} aria-hidden="true" /> : '1'}</span><span className="text-clover-800">{checked ? '签到完成' : gate === 'checking' || gate === 'stale' ? '确认签到状态' : gate === 'unavailable' ? '签到状态待更新' : '摘叶签到'}</span></li>
           <li aria-hidden="true" className="text-clover-300"><ArrowRight size={14} /></li>
-          <li className="flex items-center gap-1.5"><span className={cn('flex h-6 w-6 items-center justify-center rounded-full', complete ? 'bg-clover-100 text-clover-700' : drawState === 'available' ? 'bg-clover-700 text-white' : 'bg-clover-50 text-clover-700')}>{complete ? <Check size={13} aria-hidden="true" /> : '2'}</span>{drawState === 'available' ? <a href="#today-draw" className="flex min-h-8 items-center gap-1 rounded-lg font-semibold text-clover-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500">翻开好运 <span className="rounded-full bg-gold-300/30 px-2 py-0.5 text-[11px] text-clover-800">现在可参与</span></a> : <span className="text-clover-700">{complete ? '今日已揭晓' : drawState === 'error' ? '翻牌状态待更新' : '翻开好运'}</span>}</li>
+          <li className="flex items-center gap-1.5"><span className={cn('flex h-6 w-6 items-center justify-center rounded-full', complete ? 'bg-clover-100 text-clover-700' : drawState === 'available' ? 'bg-clover-solid text-white' : 'bg-clover-50 text-clover-700')}>{complete ? <Check size={13} aria-hidden="true" /> : '2'}</span>{drawState === 'available' ? <a href="#today-draw" className="flex min-h-8 items-center gap-1 rounded-lg font-semibold text-clover-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500">翻开好运 <span className="rounded-full bg-gold-300/30 px-2 py-0.5 text-[11px] text-clover-800">现在可参与</span></a> : <span className="text-clover-700">{complete ? '今日已揭晓' : drawState === 'error' ? '翻牌状态待更新' : '翻开好运'}</span>}</li>
         </ol>
       </div>
       <div className="grid min-w-0 grid-cols-2 gap-3 border-b border-clover-100 pb-3 lg:flex lg:gap-5 lg:border-0 lg:pb-0">

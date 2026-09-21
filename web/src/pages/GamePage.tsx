@@ -75,23 +75,25 @@ const REASON_TEXT: Record<GameReason, string> = {
 }
 
 /* ---------- 方块配色:只用色板 token,不自创色值 ---------- */
+// 带白字的深色方块走 --c-tile-* 变量:浅色下与色板完全一致,深色下单独压深,
+// 保证白字对比度仍然达标(直接翻 clover-400/500 的亮色会让白字看不清)。
 const TILE_STYLE: Record<number, string> = {
   2: 'bg-clover-50 text-clover-700',
   4: 'bg-clover-100 text-clover-700',
   8: 'bg-clover-200 text-clover-800',
   16: 'bg-clover-300 text-clover-800',
-  32: 'bg-clover-400 text-white',
-  64: 'bg-clover-500 text-white',
-  128: 'bg-clover-600 text-white',
-  256: 'bg-clover-700 text-white',
+  32: 'bg-[rgb(var(--c-tile-32))] text-white',
+  64: 'bg-[rgb(var(--c-tile-64))] text-white',
+  128: 'bg-[rgb(var(--c-tile-128))] text-white',
+  256: 'bg-[rgb(var(--c-tile-256))] text-white',
   512: 'bg-gold-300 text-gold-600',
-  1024: 'bg-gold-400 text-white',
+  1024: 'bg-[rgb(var(--c-tile-1024))] text-white',
 }
 
 function tileStyle(v: number): string {
   if (v >= 4096) return 'bg-clover-gradient text-white ring-2 ring-gold-400'
   if (v >= 2048) return 'bg-clover-gradient text-white'
-  return TILE_STYLE[v] ?? 'bg-clover-800 text-white'
+  return TILE_STYLE[v] ?? 'bg-[rgb(var(--c-tile-256))] text-white'
 }
 
 /** 位数越多字号越小,保证 375px 小屏 5 位数也不溢出。 */
@@ -227,7 +229,7 @@ function Board({
             className={cn(
               'flex min-w-0 items-center justify-center rounded-xl font-kai leading-none',
               v === 0
-                ? 'bg-white/70'
+                ? 'bg-surface/70'
                 : cn('animate-pop-in shadow-leaf-sm', tileStyle(v), tileFont(v)),
             )}
           >
@@ -662,9 +664,9 @@ export default function GamePage() {
             className="pointer-events-none absolute right-2 top-10 hidden animate-float-leaf lg:block"
             aria-hidden
           >
-            <Clover size={40} petal="#bce3c9" petalAlt="#dcf1e2" />
+            <Clover size={40} petal="rgb(var(--c-clover-200))" petalAlt="rgb(var(--c-clover-100))" />
           </span>
-          <span className="flex items-center gap-2 rounded-full border border-clover-100 bg-white/80 px-4 py-1.5 text-sm text-clover-700 shadow-leaf-sm">
+          <span className="flex items-center gap-2 rounded-full border border-clover-100 bg-surface/80 px-4 py-1.5 text-sm text-clover-700 shadow-leaf-sm">
             <Gamepad2 size={15} /> 小游戏 · 合成方块换额度
           </span>
           <h1 className="title-kai mt-4 text-3xl leading-snug sm:text-4xl">
@@ -713,7 +715,7 @@ export default function GamePage() {
 
         {!!me?.bound && !loadingBoard && !!loadError && (
           <Card className="mx-auto max-w-lg p-8 text-center">
-            <Clover size={40} className="mx-auto" petal="#bce3c9" petalAlt="#dcf1e2" />
+            <Clover size={40} className="mx-auto" petal="rgb(var(--c-clover-200))" petalAlt="rgb(var(--c-clover-100))" />
             <h2 className="mt-3 text-xl font-bold text-clover-800">小游戏加载失败</h2>
             <p className="mt-2 text-sm text-muted-foreground">
               {loadError?.message || '请稍后刷新页面再试'}
@@ -723,7 +725,7 @@ export default function GamePage() {
 
         {!!me?.bound && !loadingBoard && !loadError && !summary?.enabled && (
           <Card className="mx-auto max-w-lg p-8 text-center">
-            <Clover size={44} className="mx-auto" petal="#bce3c9" petalAlt="#dcf1e2" />
+            <Clover size={44} className="mx-auto" petal="rgb(var(--c-clover-200))" petalAlt="rgb(var(--c-clover-100))" />
             <h2 className="mt-3 text-xl font-bold text-clover-800">小游戏暂未开放</h2>
             <p className="mt-2 text-sm text-muted-foreground">
               站长正在给草地浇水,过阵子再来看看吧。
@@ -852,7 +854,7 @@ export default function GamePage() {
 
                 {gameOver && (
                   <p className="mt-3 flex items-center justify-center gap-1.5 text-sm text-gold-600">
-                    <Clover size={14} stem={false} petal="#ddb45f" petalAlt="#eed9a4" />
+                    <Clover size={14} stem={false} petal="rgb(var(--c-gold-400))" petalAlt="rgb(var(--c-gold-300))" />
                     没有可走的方向了,结算领奖吧
                   </p>
                 )}
@@ -919,7 +921,7 @@ export default function GamePage() {
                     hitTier && (
                       <p className="mt-4 rounded-2xl border border-gold-300 bg-cream px-3 py-2.5 text-sm leading-6 text-gold-600">
                         <span className="mr-1.5 inline-block align-[-2px]">
-                          <Clover size={14} stem={false} petal="#ddb45f" petalAlt="#eed9a4" />
+                          <Clover size={14} stem={false} petal="rgb(var(--c-gold-400))" petalAlt="rgb(var(--c-gold-300))" />
                         </span>
                         已到顶档 · 本局可得{' '}
                         <span className="word-gold font-kai text-base">
@@ -998,8 +1000,8 @@ export default function GamePage() {
                             <Clover
                               size={20}
                               stem={false}
-                              petal={p.quota > 0 ? '#ddb45f' : '#bce3c9'}
-                              petalAlt={p.quota > 0 ? '#eed9a4' : '#dcf1e2'}
+                              petal={p.quota > 0 ? 'rgb(var(--c-gold-400))' : 'rgb(var(--c-clover-200))'}
+                              petalAlt={p.quota > 0 ? 'rgb(var(--c-gold-300))' : 'rgb(var(--c-clover-100))'}
                             />
                           </span>
                           <div className="min-w-0 flex-1">

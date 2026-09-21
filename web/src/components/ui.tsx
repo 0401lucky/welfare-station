@@ -21,10 +21,10 @@ export function Button({
     lg: 'h-12 px-7 text-base',
   }
   const variants = {
-    default: 'bg-clover-600 text-white hover:bg-clover-700 shadow-leaf-sm hover:shadow-leaf',
+    default: 'bg-clover-solid-soft text-white hover:bg-clover-solid shadow-leaf-sm hover:shadow-leaf',
     gradient: 'bg-clover-gradient text-white hover:brightness-105 shadow-leaf hover:-translate-y-0.5',
     gold: 'bg-gradient-to-r from-gold-400 to-gold-500 text-white hover:brightness-105 shadow-leaf-sm',
-    outline: 'border border-clover-200 bg-white/80 text-clover-700 hover:border-clover-400 hover:bg-clover-50',
+    outline: 'border border-clover-200 bg-surface/80 text-clover-700 hover:border-clover-400 hover:bg-clover-50',
     ghost: 'text-clover-700 hover:bg-clover-100/70',
     danger: 'bg-destructive/90 text-white hover:bg-destructive',
   }
@@ -63,7 +63,7 @@ export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInp
   return (
     <input
       className={cn(
-        'h-10 w-full rounded-xl border border-input bg-white/90 px-3 text-sm text-foreground placeholder:text-muted-foreground/70 focus:border-clover-400 focus:outline-none focus:ring-2 focus:ring-clover-200',
+        'h-10 w-full rounded-xl border border-input bg-surface/90 px-3 text-sm text-foreground placeholder:text-muted-foreground/70 focus:border-clover-400 focus:outline-none focus:ring-2 focus:ring-clover-200',
         className,
       )}
       {...props}
@@ -142,7 +142,7 @@ export function Textarea({ className, ...props }: React.TextareaHTMLAttributes<H
   return (
     <textarea
       className={cn(
-        'w-full rounded-xl border border-input bg-white/90 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 focus:border-clover-400 focus:outline-none focus:ring-2 focus:ring-clover-200',
+        'w-full rounded-xl border border-input bg-surface/90 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 focus:border-clover-400 focus:outline-none focus:ring-2 focus:ring-clover-200',
         className,
       )}
       {...props}
@@ -158,7 +158,7 @@ export function Select({
   return (
     <select
       className={cn(
-        'h-10 w-full rounded-xl border border-input bg-white/90 px-3 text-sm text-foreground focus:border-clover-400 focus:outline-none focus:ring-2 focus:ring-clover-200',
+        'h-10 w-full rounded-xl border border-input bg-surface/90 px-3 text-sm text-foreground focus:border-clover-400 focus:outline-none focus:ring-2 focus:ring-clover-200',
         className,
       )}
       {...props}
@@ -181,7 +181,7 @@ export function Table({ head, rows }: { head: React.ReactNode[]; rows: React.Rea
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className="border-b border-clover-50 bg-white/70 last:border-0 hover:bg-clover-50/60">
+            <tr key={i} className="border-b border-clover-50 bg-surface/70 last:border-0 hover:bg-clover-50/60">
               {row.map((cell, j) => (
                 <td key={j} className="px-3 py-2.5">{cell}</td>
               ))}
@@ -248,7 +248,7 @@ export function ConfirmDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-red-100 bg-red-50 text-red-500">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-red-100 bg-red-50 text-red-500 dark:border-destructive/35 dark:bg-destructive/10 dark:text-destructive">
             <AlertTriangle size={17} />
           </span>
           <div className="min-w-0">

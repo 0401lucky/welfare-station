@@ -10,10 +10,10 @@ type ActionAppearance = {
 
 export function siteActionClass({ variant = 'default', size = 'md', className }: ActionAppearance = {}) {
   const variants = {
-    default: 'bg-clover-700 text-white shadow-leaf-sm hover:bg-clover-800',
+    default: 'bg-clover-solid text-white shadow-leaf-sm hover:bg-clover-solid-strong',
     gradient: 'bg-clover-gradient text-white shadow-leaf-sm hover:brightness-105',
     gold: 'border border-gold-300 bg-cream text-clover-800 hover:border-gold-400',
-    outline: 'border border-clover-200 bg-white/80 text-clover-800 hover:border-clover-400 hover:bg-clover-50',
+    outline: 'border border-clover-200 bg-surface/80 text-clover-800 hover:border-clover-400 hover:bg-clover-50',
     ghost: 'text-clover-700 hover:bg-clover-100/70',
     danger: 'bg-destructive text-white hover:brightness-95',
   }

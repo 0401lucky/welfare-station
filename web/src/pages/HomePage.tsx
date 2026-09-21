@@ -15,7 +15,7 @@ function Hero({ session }: { session: HomeSessionState }) {
       <img src="/assets/site/clover-garden-hero.webp" alt="" aria-hidden="true" className="site-hero-art absolute inset-0 -z-20 h-full w-full" loading="eager" decoding="async" onError={(event) => { event.currentTarget.style.opacity = '0' }} />
       <div className="site-hero-scrim absolute inset-0 -z-10" />
       <div className="site-hero-copy relative px-5 py-6 sm:px-9 sm:py-7">
-        <p className="mb-3 hidden w-fit items-center gap-1.5 rounded-full border border-clover-100/80 bg-white/80 px-3 py-1 text-xs font-medium text-clover-800 sm:flex"><Clover size={13} stem={false} />公益小站 · 今日好运营业中</p>
+        <p className="mb-3 hidden w-fit items-center gap-1.5 rounded-full border border-clover-100/80 bg-surface/80 px-3 py-1 text-xs font-medium text-clover-800 sm:flex"><Clover size={13} stem={false} />公益小站 · 今日好运营业中</p>
         <h1 id="home-heading" className="title-kai text-[2rem] leading-[1.25] sm:text-[2.75rem] lg:text-[3rem]"><span className="block sm:inline">今天也要 </span><span className="word-gold pr-1">lucky</span> 一点</h1>
         <p className="mt-3 max-w-md text-sm leading-6 text-clover-800 sm:text-[15px]">每天摘一片叶子，<span className="block sm:inline">额度直充到 new-api 钱包。</span></p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -58,7 +58,7 @@ export default function HomePage() {
       <HomeActivities key={`activities:${me?.user.id ?? session}`} me={me} session={session} perUnit={site.data?.quota_per_unit} onCelebrate={celebrate} onSessionExpired={onSessionExpired} />
       <HomeLeaderboard me={me} />
       <ArcadeShowcase />
-      <footer className="mt-16 flex flex-col items-center gap-2 border-t border-clover-100 pt-6 text-xs text-muted-foreground"><Clover size={20} petal="#8fd6a8" petalAlt="#bce3c9" /><p><Gift size={11} className="mr-1 inline" aria-hidden="true" />{site.data?.site_name ?? '福利站'} · 摘叶子，攒好运</p></footer>
+      <footer className="mt-16 flex flex-col items-center gap-2 border-t border-clover-100 pt-6 text-xs text-muted-foreground"><Clover size={20} petal="rgb(var(--c-clover-300))" petalAlt="rgb(var(--c-clover-200))" /><p><Gift size={11} className="mr-1 inline" aria-hidden="true" />{site.data?.site_name ?? '福利站'} · 摘叶子，攒好运</p></footer>
     </SiteShell>
   )
 }

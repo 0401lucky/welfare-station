@@ -45,9 +45,10 @@ export const toast = {
 }
 
 const kindCls: Record<ToastItem['kind'], string> = {
-  success: 'border-clover-200 bg-white text-clover-800',
-  error: 'border-red-200 bg-white text-red-600',
-  info: 'border-gold-300 bg-white text-clover-ink',
+  success: 'border-clover-200 bg-surface text-clover-800',
+  // red-600 在浅色白底上仍是原值;深色面板会把它压到 3.3:1,所以深色改用 destructive 变量(5.1:1)。
+  error: 'border-red-200 bg-surface text-red-600 dark:border-destructive/40 dark:text-destructive',
+  info: 'border-gold-300 bg-surface text-clover-ink',
 }
 
 export function Toaster() {
@@ -75,7 +76,7 @@ export function Toaster() {
               kindCls[t.kind],
             )}
           >
-            <Clover size={16} stem={false} petal={t.kind === 'error' ? '#d4574e' : '#35a465'} />
+            <Clover size={16} stem={false} petal={t.kind === 'error' ? 'rgb(var(--c-destructive))' : 'rgb(var(--c-clover-500))'} />
             <span>{t.text}</span>
             <X size={14} aria-hidden="true" className="shrink-0 opacity-60" />
             <span className="sr-only">关闭提示</span>

@@ -1,39 +1,51 @@
 /** @type {import('tailwindcss').Config} */
+// 色板全部走 CSS 变量(index.css 的 :root / .dark),深色模式只改变量不动组件。
+// 每个变量存的是 "R G B" 三元组,配合 <alpha-value> 保住 Tailwind 的 /50 透明度语法。
+const v = (name) => `rgb(var(${name}) / <alpha-value>)`
+
 export default {
+  darkMode: 'class',
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
         // 四叶草主题色板
         clover: {
-          50: '#f0f9f2',
-          100: '#dcf1e2',
-          200: '#bce3c9',
-          300: '#8fd6a8',
-          400: '#5bbc82',
-          500: '#35a465',
-          600: '#268552',
-          700: '#1f6a44',
-          800: '#1d5439',
-          900: '#194630',
-          ink: '#1c4a32', // 墨绿正文
+          50: v('--c-clover-50'),
+          100: v('--c-clover-100'),
+          200: v('--c-clover-200'),
+          300: v('--c-clover-300'),
+          400: v('--c-clover-400'),
+          500: v('--c-clover-500'),
+          600: v('--c-clover-600'),
+          700: v('--c-clover-700'),
+          800: v('--c-clover-800'),
+          900: v('--c-clover-900'),
+          ink: v('--c-clover-ink'),
+          // 实心按钮专用的深绿:浅色下 700/800 是"可作为按钮底色"的深绿,
+          // 深色下 700/800 要变亮当文字用,于是把按钮底色单独拎出来,两边互不影响。
+          solid: v('--c-clover-solid'),
+          'solid-strong': v('--c-clover-solid-strong'),
+          'solid-soft': v('--c-clover-solid-soft'),
         },
         gold: {
-          300: '#eed9a4',
-          400: '#ddb45f',
-          500: '#c9963a',
-          600: '#b07f27',
+          300: v('--c-gold-300'),
+          400: v('--c-gold-400'),
+          500: v('--c-gold-500'),
+          600: v('--c-gold-600'),
         },
-        cream: '#faf6e8',
-        border: '#dceadfcc',
-        background: '#f2f8f0',
-        foreground: '#1c4a32',
-        muted: { DEFAULT: '#e8f2ea', foreground: '#5f8770' },
-        card: { DEFAULT: '#ffffff', foreground: '#1c4a32' },
-        primary: { DEFAULT: '#268552', foreground: '#ffffff' },
-        destructive: { DEFAULT: '#d4574e', foreground: '#ffffff' },
-        ring: '#5bbc82',
-        input: '#cfe4d5',
+        // 面板底色:浅色是纯白,深色是深绿灰。所有 bg-white 已改用 bg-surface。
+        surface: v('--c-surface'),
+        cream: v('--c-cream'),
+        border: 'rgb(var(--c-border) / 0.8)',
+        background: v('--c-background'),
+        foreground: v('--c-foreground'),
+        muted: { DEFAULT: v('--c-muted'), foreground: v('--c-muted-foreground') },
+        card: { DEFAULT: v('--c-card'), foreground: v('--c-card-foreground') },
+        primary: { DEFAULT: v('--c-primary'), foreground: v('--c-primary-foreground') },
+        destructive: { DEFAULT: v('--c-destructive'), foreground: v('--c-destructive-foreground') },
+        ring: v('--c-ring'),
+        input: v('--c-input'),
       },
       fontFamily: {
         sans: ['"Noto Sans SC"', 'system-ui', 'sans-serif'],

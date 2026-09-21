@@ -448,7 +448,7 @@ export default function WatermelonPage() {
       <main className="relative z-10 mx-auto max-w-6xl px-4 pb-16">
         <nav className="flex min-h-16 items-center justify-between gap-3 py-3" aria-label="游戏导航">
           <Link to="/game" className="inline-flex min-h-11 items-center gap-2 rounded-full pr-3 text-sm text-clover-700 hover:text-clover-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-400"><ArrowLeft size={17} /> 小游戏花园</Link>
-          <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs', mode === 'challenge' ? 'border-gold-300 bg-cream text-gold-600' : 'border-clover-100 bg-white/60 text-clover-700')}>
+          <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs', mode === 'challenge' ? 'border-gold-300 bg-cream text-gold-600' : 'border-clover-100 bg-surface/60 text-clover-700')}>
             {mode === 'challenge' ? <Gift size={13} /> : <Leaf size={13} />}
             {mode === 'challenge' ? '额度挑战' : '自由练习 · 不计额度'}
           </span>
@@ -464,11 +464,11 @@ export default function WatermelonPage() {
               <p className="hidden max-w-56 text-sm leading-7 text-clover-700/85 sm:block min-[1100px]:mt-5">一点重力，一点弹性。<br />碰在一起，变成大西瓜。<br className="hidden min-[1100px]:block" /><span className="hidden min-[1100px]:inline">把合成的快乐，变成一点福利。</span></p>
             </div>
             <div className="mt-4 grid grid-cols-[1fr_1fr_auto] items-center gap-3 min-[1100px]:mt-8 min-[1100px]:grid-cols-1">
-              <div className="rounded-2xl border border-clover-100 bg-white/60 px-3 py-3 min-[1100px]:flex min-[1100px]:items-center min-[1100px]:justify-between min-[1100px]:px-4">
+              <div className="rounded-2xl border border-clover-100 bg-surface/60 px-3 py-3 min-[1100px]:flex min-[1100px]:items-center min-[1100px]:justify-between min-[1100px]:px-4">
                 <span className="flex items-center gap-1.5 text-xs text-clover-700 min-[1100px]:text-sm"><Trophy size={15} className="text-gold-500" /> 当前分数</span>
                 <strong className="mt-1 block text-2xl font-semibold tabular-nums text-clover-800 min-[1100px]:mt-0 min-[1100px]:text-3xl">{progress.score}</strong>
               </div>
-              <div className="rounded-2xl border border-clover-100 bg-white/40 px-3 py-3 min-[1100px]:flex min-[1100px]:items-center min-[1100px]:justify-between min-[1100px]:px-4">
+              <div className="rounded-2xl border border-clover-100 bg-surface/40 px-3 py-3 min-[1100px]:flex min-[1100px]:items-center min-[1100px]:justify-between min-[1100px]:px-4">
                 <span className="flex items-center gap-1.5 text-xs text-clover-700 min-[1100px]:text-sm"><Sparkles size={15} /> 本机最佳</span>
                 <strong className="mt-1 block text-2xl font-semibold tabular-nums text-clover-600 min-[1100px]:mt-0 min-[1100px]:text-3xl">{progress.best}</strong>
               </div>
@@ -528,7 +528,7 @@ export default function WatermelonPage() {
               {statusQuery.isError && <div className="mt-3 text-xs leading-6 text-clover-700">暂时无法读取奖励，仍可自由练习。<button type="button" className="ml-1 min-h-11 font-semibold underline" onClick={() => void statusQuery.refetch()}>重试</button></div>}
             </Card>
 
-            {status && <div className="mt-3 grid grid-cols-2 gap-3 rounded-2xl border border-clover-100 bg-white/50 px-4 py-3">
+            {status && <div className="mt-3 grid grid-cols-2 gap-3 rounded-2xl border border-clover-100 bg-surface/50 px-4 py-3">
               <div><p className="text-[11px] text-clover-700">今日剩余机会</p><p className="mt-1 font-semibold tabular-nums text-clover-800">{claimsLeft}<span className="ml-1 text-xs font-normal text-clover-700/70">/ {status.daily_claim_limit} 次</span></p></div>
               <div><p className="text-[11px] text-clover-700">个人剩余额度</p><p className="mt-1 font-semibold text-clover-800"><Quota value={quotaLeft} /></p></div>
             </div>}
@@ -540,7 +540,7 @@ export default function WatermelonPage() {
             </div>
           </aside>
 
-          <section className="watermelon-evolution rounded-3xl border border-clover-100 bg-white/50 px-3 py-4 sm:px-6" aria-label="水果合成路线与奖励规则">
+          <section className="watermelon-evolution rounded-3xl border border-clover-100 bg-surface/50 px-3 py-4 sm:px-6" aria-label="水果合成路线与奖励规则">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><h2 className="title-kai text-xl">合成路线</h2><p className="text-[11px] text-clover-700/75">{tiers.length ? '达到对应水果，结算领取本局最高一档' : '葡萄、樱桃、橘子随机出现，大水果靠合成'}</p></div>
             <ol className="watermelon-evolution-list">
               {WATERMELON_FRUITS.map(fruit => {

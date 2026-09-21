@@ -16,8 +16,8 @@ export function StreakBadges({ streak, bonuses, className }: { streak: number; b
       <ul className="mt-2 flex flex-wrap gap-2" aria-label="连签成就">
         {list.map((bonus) => {
           const lit = streak >= bonus.days
-          return <li key={bonus.days} data-lit={lit} className={cn('flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] tabular-nums', lit ? 'border-gold-300 bg-cream text-gold-600' : 'border-dashed border-clover-200 bg-white/60 text-clover-700/70')} aria-label={`连签 ${bonus.days} 天 +${formatBonusPercent(bonus.bonus)}${lit ? '，已点亮' : '，未点亮'}`}>
-            <Clover size={13} stem={false} petal={lit ? '#c9963a' : '#bce3c9'} petalAlt={lit ? '#ddb45f' : '#dcf1e2'} />
+          return <li key={bonus.days} data-lit={lit} className={cn('flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] tabular-nums', lit ? 'border-gold-300 bg-cream text-gold-600' : 'border-dashed border-clover-200 bg-surface/60 text-clover-700/70')} aria-label={`连签 ${bonus.days} 天 +${formatBonusPercent(bonus.bonus)}${lit ? '，已点亮' : '，未点亮'}`}>
+            <Clover size={13} stem={false} petal={lit ? 'rgb(var(--c-gold-500))' : 'rgb(var(--c-clover-200))'} petalAlt={lit ? 'rgb(var(--c-gold-400))' : 'rgb(var(--c-clover-100))'} />
             {bonus.days} 天 · +{formatBonusPercent(bonus.bonus)}
           </li>
         })}

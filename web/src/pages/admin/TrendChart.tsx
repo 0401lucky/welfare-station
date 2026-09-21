@@ -9,7 +9,7 @@ const PAD = { top: 12, right: 12, bottom: 28, left: 12 }
 const series = [
   { key: 'checkins', label: '签到', fill: 'fill-clover-500', swatch: 'bg-clover-500' },
   { key: 'draws', label: '抽奖', fill: 'fill-clover-300', swatch: 'bg-clover-300' },
-  { key: 'plays', label: '游戏局数', fill: 'fill-clover-700', swatch: 'bg-clover-700' },
+  { key: 'plays', label: '游戏局数', fill: 'fill-clover-700', swatch: 'bg-clover-solid' },
 ] as const
 
 function describe(day: TrendDay, perUnit: number): string {
