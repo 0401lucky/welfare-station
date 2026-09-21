@@ -5,9 +5,11 @@ import { Clover } from '@/components/Clover'
 import { Badge, Button, Progress, Spinner } from '@/components/ui'
 import { toast } from '@/components/Toast'
 import { api, ApiError, type Activity, type ClaimResult, type SelfInfo } from '@/lib/api'
+import { formatCountdown } from '@/lib/countdown'
 import { matchesHomeActivityFilter, readClaimResult, type HomeActivityFilter } from '@/lib/homeFlow'
 import { formatDateTime, formatUSD } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { useNow } from '@/hooks/useNow'
 import { ActionLink } from './ActionLink'
 import { QueryFeedback } from './QueryFeedback'
 import { SitePanel } from './SiteShell'
@@ -41,6 +43,8 @@ export function HomeActivities({ me, session, perUnit, onCelebrate, onSessionExp
   onSessionExpired: () => void
 }) {
   const qc = useQueryClient()
+  // 倒计时每分钟走一格;页面隐藏时暂停。
+  const now = useNow(60_000)
   const [filter, setFilter] = useState<HomeActivityFilter>('all')
   const [feedback, setFeedback] = useState<Record<number, ClaimFeedback>>({})
   const submitting = useRef(false)
@@ -109,6 +113,9 @@ export function HomeActivities({ me, session, perUnit, onCelebrate, onSessionExp
                 const result = feedback[activity.id]?.result
                 const error = feedback[activity.id]?.error
                 const date = activity.status === 'not_started' ? activity.start_at : activity.end_at
+                const countdown = formatCountdown(date, now)
+                const countdownText = activity.status === 'not_started' ? (countdown.passed ? '即将开始' : `${countdown.text}后开始`) : countdown.passed ? '已结束' : `还剩 ${countdown.text}`
+                const urgent = countdown.urgent && !countdown.passed
                 return <SitePanel key={activity.id} className="overflow-hidden p-5">
                   <div className="grid items-center gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,.65fr)_minmax(0,1fr)_auto] lg:gap-5">
                     <div className="flex min-w-0 items-start gap-3">
@@ -123,7 +130,7 @@ export function HomeActivities({ me, session, perUnit, onCelebrate, onSessionExp
                     <div className="min-w-0">
                       <div className="flex items-center justify-between gap-2 text-xs text-clover-700"><span>剩余 {activity.remaining}/{activity.total_count} 份</span>{activity.min_trust_level > 0 && <span>等级 ≥ {activity.min_trust_level}</span>}</div>
                       <div className="mt-2" role="progressbar" aria-label={`${activity.title}剩余份数`} aria-valuemin={0} aria-valuemax={activity.total_count} aria-valuenow={activity.remaining}><Progress value={activity.total_count > 0 ? activity.remaining / activity.total_count : 0} /></div>
-                      <p className="mt-2 flex items-start gap-1 text-[11px] leading-5 text-clover-700"><Timer size={12} className="mt-1 shrink-0" aria-hidden="true" /><span><time dateTime={date}>{formatDateTime(date)}</time> {activity.status === 'not_started' ? '开始' : '结束'}</span></p>
+                      <p className={cn('mt-2 flex items-start gap-1 text-[11px] leading-5', urgent ? 'font-medium text-gold-600' : 'text-clover-700')}><Timer size={12} className="mt-1 shrink-0" aria-hidden="true" /><span><time dateTime={date} title={`${formatDateTime(date)} ${activity.status === 'not_started' ? '开始' : '结束'}`}>{countdownText}</time></span></p>
                     </div>
                     <div className="min-w-0 lg:w-40">
                       {active && session === 'anonymous' ? <ActionLink href="/api/oauth/linuxdo" variant="outline" className="w-full">登录后领取 <ArrowRight size={14} aria-hidden="true" /></ActionLink>

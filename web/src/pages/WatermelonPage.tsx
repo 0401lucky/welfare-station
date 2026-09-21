@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Check, Gift, Leaf, LogIn, Pause, Play, RotateCcw
 import Header from '@/components/Header'
 import Quota from '@/components/Quota'
 import { CloverRain } from '@/components/Clover'
+import { ShareCardButton } from '@/components/site/ShareCardButton'
 import { Button, Card, ConfirmDialog, Progress, Spinner } from '@/components/ui'
 import { toast } from '@/components/Toast'
 import { useMe, useSiteInfo } from '@/hooks/useMe'
@@ -14,6 +15,8 @@ import {
   type WatermelonCheckpointResp, type WatermelonStartResp, type WatermelonStatus,
 } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { formatUSD } from '@/lib/format'
+import { shareDateLabel } from '@/lib/shareCard'
 import { WATERMELON_FRUITS, getWatermelonFruit, watermelonFruitName } from '@/lib/watermelonFruits'
 import type { WatermelonProgress } from '@/lib/watermelonBridge'
 import {
@@ -494,6 +497,7 @@ export default function WatermelonPage() {
                   <p className="mt-2 text-3xl font-semibold text-clover-800"><Quota value={result.quota} /></p>
                   <p className="mt-2 text-xs leading-6 text-clover-700">{result.quota > 0 && result.grant_status !== 'success' ? '本局已经结算，无需重复领取。可在领取记录查看到账状态。' : REASONS[result.reason]}</p>
                   {result.quota > 0 && <Link to="/records" className="mt-1 inline-flex min-h-11 items-center gap-1 text-xs font-medium text-clover-700 hover:underline">查看领取记录 <ArrowRight size={13} /></Link>}
+                  <div className="mt-2"><ShareCardButton fileName={`clover-watermelon-${result.score}.png`} data={{ site: site?.site_name || '福利站', user: me?.user.display_name || me?.user.linux_do_name || '', kind: 'game', title: '软软西瓜', value: `${result.score} 分`, reward: result.quota > 0 ? `奖励 +${formatUSD(result.quota, site?.quota_per_unit)}` : `最高合成 ${watermelonFruitName(result.highest_tile)}`, date: shareDateLabel() }} /></div>
                 </div>
               ) : roundActive ? (
                 <div className="mt-4">

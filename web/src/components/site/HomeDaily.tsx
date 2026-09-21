@@ -10,10 +10,14 @@ import { api, ApiError, type CheckinResult, type CheckinView, type DrawResult, t
 import { dateInTimeZone, getCheckinGate, type CheckinGateState } from '@/lib/checkinFlow'
 import { getHomeDrawState, readCheckinResult, readDrawResult, type HomeDrawState } from '@/lib/homeFlow'
 import { formatExpireIn, formatUSD } from '@/lib/format'
+import { justUnlocked } from '@/lib/streakMilestones'
+import { shareDateLabel, type ShareCardData } from '@/lib/shareCard'
 import { cn } from '@/lib/utils'
 import { ActionLink } from './ActionLink'
 import { QueryFeedback } from './QueryFeedback'
+import { ShareCardButton } from './ShareCardButton'
 import { SitePanel } from './SiteShell'
+import { StreakBadges } from './StreakBadges'
 
 const DRAW_CARD_COUNT = 5
 type DisplayDrawResult = Omit<DrawResult, 'grant_status'> & { grant_status?: DrawResult['grant_status'] }
@@ -149,12 +153,13 @@ function CheckinCard({ view, gate, result, pending, refreshing, error, onCheckin
       {error && !result && <QueryFeedback compact className="mt-3" kind="error" title="本次签到未能确认" description={error} onRetry={onRefresh} retrying={refreshing} />}
       {notOpen && !checked && !waiting && !unavailable && <div className="mt-2 flex flex-wrap items-center justify-between gap-1 text-xs text-clover-700"><span>开放时间 {rules?.available_from || '00:00'}（{rules?.timezone || 'UTC'}）</span><Button type="button" variant="ghost" size="sm" className="min-h-11 px-2 text-xs" disabled={refreshing} onClick={onRefresh}><RefreshCw size={12} aria-hidden="true" />更新状态</Button></div>}
 
+      {view && <StreakBadges className="mt-3" streak={result?.streak ?? view.streak} bonuses={rules?.streak_bonuses} />}
       {view?.today && <CalendarDisclosure view={view} />}
     </SitePanel>
   )
 }
 
-function DrawCard({ state, gate, result, picked, view, error, queryError, refreshing, onPick, onRefresh, perUnit }: {
+function DrawCard({ state, gate, result, picked, view, error, queryError, refreshing, onPick, onRefresh, perUnit, share }: {
   state: HomeDrawState
   gate: CheckinGateState
   result: DisplayDrawResult | null
@@ -166,6 +171,7 @@ function DrawCard({ state, gate, result, picked, view, error, queryError, refres
   onPick: (index: number) => void
   onRefresh: () => void
   perUnit?: number
+  share?: Omit<ShareCardData, 'kind' | 'title' | 'value' | 'reward' | 'date'>
 }) {
   const reduced = useReducedMotion()
   const disabled = state !== 'available'
@@ -226,6 +232,7 @@ function DrawCard({ state, gate, result, picked, view, error, queryError, refres
         {result.reason === 'jackpot_fallback' && <p className="mt-1 text-xs leading-5 text-clover-700">今日永久额度名额已满，这份奖励按限时额度发放。</p>}
         {result.reason === 'over_site_budget' && <p className="mt-1 text-xs leading-5 text-clover-700">今日奖池已用完，本次没有发放额度。</p>}
         {result.quota === 0 && result.reason !== 'over_site_budget' && <p className="mt-1 text-xs leading-5 text-clover-700">这次收获了一个幸运数字，没有额度奖励。明天再来看看吧。</p>}
+        {share && <div className="mt-3"><ShareCardButton fileName={`clover-draw-${result.roll}.png`} data={{ ...share, kind: 'draw', title: result.tier_label, value: `幸运数字 ${result.roll}`, reward: result.quota > 0 ? `+${formatUSD(result.quota, perUnit)}${result.quota_type === 'temporary' ? ' 限时额度' : ''}` : result.quip, date: shareDateLabel() }} /></div>}
       </div> : <p className="mt-4 text-center text-sm leading-6 text-clover-700" role={state === 'drawing' || state === 'loading' ? 'status' : undefined}>{guidance}</p>}
 
       {(failedQuery || state === 'result_unavailable') && <QueryFeedback compact className="mt-3" kind={failedQuery ? 'error' : 'info'} title={failedQuery ? '暂时无法查看翻牌状态' : '今日已经翻牌，结果正在确认'} description={failedQuery ? '重新加载状态后再继续。' : '更新状态查看已揭晓的结果，无需再次翻牌。'} onRetry={onRefresh} retrying={refreshing} />}
@@ -263,7 +270,7 @@ function DailySummary({ me, gate, drawState }: { me: SelfInfo; gate: CheckinGate
   )
 }
 
-export function HomeDaily({ me, sessionReady, perUnit, onCelebrate, onSessionExpired }: { me: SelfInfo; sessionReady: boolean; perUnit?: number; onCelebrate: () => void; onSessionExpired: () => void }) {
+export function HomeDaily({ me, sessionReady, perUnit, siteName, onCelebrate, onSessionExpired }: { me: SelfInfo; sessionReady: boolean; perUnit?: number; siteName?: string; onCelebrate: () => void; onSessionExpired: () => void }) {
   const qc = useQueryClient()
   const [now, setNow] = useState(() => new Date())
   const [freshCheckin, setFreshCheckin] = useState<{ day: string; result: CheckinResult } | null>(null)
@@ -326,7 +333,11 @@ export function HomeDaily({ me, sessionReady, perUnit, onCelebrate, onSessionExp
 
   const acceptCheckin = (result: CheckinResult, day: string) => {
     setFreshCheckin({ result, day })
-    if (result.grant_status === 'success' && result.quota > 0) onCelebrate()
+    // 里程碑只在「这次签到恰好跨过档位」时提示一次;之后刷新状态不会再触发,
+    // 因为 acceptCheckin 只由本次签到的回调调用。
+    const milestone = justUnlocked(checkin.data?.streak ?? 0, result.streak, checkin.data?.rules.streak_bonuses)
+    if (milestone) toast.success(`连签 ${milestone} 天达成！加成已生效`)
+    if (milestone || (result.grant_status === 'success' && result.quota > 0)) onCelebrate()
   }
   const acceptDraw = (result: DrawResult, day: string) => {
     setFreshDraw({ result, day })
@@ -400,7 +411,7 @@ export function HomeDaily({ me, sessionReady, perUnit, onCelebrate, onSessionExp
       <div className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1.04fr)_minmax(0,.96fr)]">
         <CheckinCard view={checkin.data} gate={gate} result={checkinResult} pending={checkinMut.isPending} refreshing={checkin.isFetching} error={checkinError} onCheckin={onCheckin} onRefresh={() => void refreshDaily()} drawAvailable={drawState === 'available'} perUnit={perUnit} />
         <div className="min-w-0 space-y-5">
-          <DrawCard state={drawState} gate={gate} result={drawResult} picked={freshResult || drawMut.isPending ? picked : null} view={currentDrawView} error={drawError} queryError={draw.isError} refreshing={draw.isFetching || checkin.isFetching} onPick={onPick} onRefresh={() => void refreshDaily()} perUnit={perUnit} />
+          <DrawCard state={drawState} gate={gate} result={drawResult} picked={freshResult || drawMut.isPending ? picked : null} view={currentDrawView} error={drawError} queryError={draw.isError} refreshing={draw.isFetching || checkin.isFetching} onPick={onPick} onRefresh={() => void refreshDaily()} perUnit={perUnit} share={{ site: siteName || '福利站', user: me.user.display_name || me.user.linux_do_name }} />
           <SitePanel className="px-5 py-3 sm:px-6">
             <details>
               <summary className="site-summary flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-lg text-sm font-semibold text-clover-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500"><span className="flex items-center gap-2"><Sparkles size={16} className="text-gold-600" aria-hidden="true" />小站玩法</span><ChevronDown size={16} aria-hidden="true" /></summary>

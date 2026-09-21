@@ -248,6 +248,28 @@ export interface BudgetsView {
   history: { date: string; used: Record<string, number> }[]
 }
 
+// ---- 好运榜(GET /api/leaderboard)----
+
+export type LeaderboardKind = 'streak' | 'game'
+
+/** 榜单只暴露展示名、头像与数值;高分榜额外标注最高分来自哪款游戏。 */
+export interface LeaderboardEntry {
+  user_id: number
+  name: string
+  avatar_url: string
+  value: number
+  game_type?: string
+}
+
+export interface LeaderboardView {
+  kind: LeaderboardKind
+  /** 统计起点:连签榜为今天,高分榜为本周一,均按签到配置时区。 */
+  since: string
+  items: LeaderboardEntry[]
+  /** 登录用户自己的名次;不在榜上(连签为 0 / 本周没玩)时缺省。 */
+  me?: { rank: number; value: number }
+}
+
 export interface CheckinResult {
   quota: number
   streak: number

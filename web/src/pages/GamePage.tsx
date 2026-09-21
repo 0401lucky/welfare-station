@@ -7,6 +7,7 @@ import Header from '@/components/Header'
 import Quota from '@/components/Quota'
 import { Badge, Button, Card, ConfirmDialog, Progress, Spinner } from '@/components/ui'
 import { Clover, CloverRain } from '@/components/Clover'
+import { ShareCardButton } from '@/components/site/ShareCardButton'
 import { toast } from '@/components/Toast'
 import {
   api,
@@ -22,6 +23,7 @@ import {
 } from '@/lib/api'
 import { useMe, useSiteInfo } from '@/hooks/useMe'
 import { formatDateTime, formatUSD } from '@/lib/format'
+import { shareDateLabel } from '@/lib/shareCard'
 import { cn } from '@/lib/utils'
 import {
   Game2048Direction,
@@ -756,6 +758,9 @@ export default function GamePage() {
                         ? '额度已记账,稍后自动补发到钱包'
                         : `已直充到账${result.quota_type === 'temporary' ? ' · 限时额度今日有效' : ''}`
                       : REASON_TEXT[result.reason] || '这局没有奖励'}
+                  </div>
+                  <div className="mt-3 flex justify-center">
+                    <ShareCardButton fileName={`clover-2048-${result.score}.png`} data={{ site: site?.site_name || '福利站', user: me?.user.display_name || me?.user.linux_do_name || '', kind: 'game', title: '幸运 2048', value: `${result.score} 分`, reward: result.quota > 0 ? `奖励 +${formatUSD(result.quota, perUnit)}` : `最高方块 ${result.highest_tile}`, date: shareDateLabel() }} />
                   </div>
                 </motion.div>
               )}

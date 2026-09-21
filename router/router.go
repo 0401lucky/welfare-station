@@ -37,6 +37,9 @@ func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
 	api.GET("/activities", app.Auth.OptionalUser(), app.ListActivities)
 	user.POST("/activities/:id/claim", middleware.RateLimitUser(), app.ClaimActivity)
 
+	// ---- 好运榜:匿名可看,登录用户多一个「我的名次」----
+	api.GET("/leaderboard", app.Auth.OptionalUser(), app.Leaderboard)
+
 	// ---- M7: user grants (my records) ----
 	user.GET("/user/grants", app.GetMyGrants)
 

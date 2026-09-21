@@ -3,7 +3,7 @@ import { useReducedMotion } from 'framer-motion'
 import { ArrowRight, ArrowUpRight, Gamepad2, Gift, LogIn, Megaphone } from 'lucide-react'
 import ArcadeShowcase from '@/components/arcade/ArcadeCards'
 import { Clover, CloverRain } from '@/components/Clover'
-import { ActionLink, QueryFeedback, SitePanel, SiteShell } from '@/components/site'
+import { ActionLink, HomeLeaderboard, QueryFeedback, SitePanel, SiteShell } from '@/components/site'
 import { HomeActivities, type HomeSessionState } from '@/components/site/HomeActivities'
 import { HomeDaily } from '@/components/site/HomeDaily'
 import { ApiError } from '@/lib/api'
@@ -53,9 +53,10 @@ export default function HomePage() {
       {session === 'error' && <QueryFeedback className="mt-5" kind="error" title="账户暂时没能加载" description="重新加载账户后，就可以继续签到和领取福利。" onRetry={() => void self.refetch()} retrying={self.isFetching} />}
       {session === 'anonymous' && <SitePanel className="mt-5 flex flex-wrap items-center justify-between gap-4 p-5 sm:p-6"><div className="min-w-0"><h2 className="flex items-center gap-2 text-lg font-bold text-clover-900"><Clover size={22} stem={false} />来摘今天的第一片叶子</h2><p className="mt-2 text-sm leading-6 text-clover-700">使用 LinuxDO 登录，连接 new-api 账号后即可签到、翻牌和领取福利。</p></div><ActionLink href="/api/oauth/linuxdo"><LogIn size={16} aria-hidden="true" />登录开启好运</ActionLink></SitePanel>}
       {me && !me.bound && <SitePanel className="mt-5 flex flex-wrap items-center justify-between gap-4 p-5 sm:p-6"><div className="min-w-0"><h2 className="flex items-center gap-2 text-lg font-bold text-clover-900"><Clover size={22} stem={false} />让叶子找到你的钱包</h2><p className="mt-2 max-w-xl text-sm leading-6 text-clover-700">在 new-api 使用同一个 LinuxDO 账号登录，再回来连接账号，就能开始今天的签到与翻牌。</p></div><ActionLink to="/bind">连接 new-api 账号 <ArrowRight size={16} aria-hidden="true" /></ActionLink></SitePanel>}
-      {me?.bound && <HomeDaily key={`daily:${me.user.id}`} me={me} sessionReady={session === 'authenticated'} perUnit={site.data?.quota_per_unit} onCelebrate={celebrate} onSessionExpired={onSessionExpired} />}
+      {me?.bound && <HomeDaily key={`daily:${me.user.id}`} me={me} sessionReady={session === 'authenticated'} perUnit={site.data?.quota_per_unit} siteName={site.data?.site_name} onCelebrate={celebrate} onSessionExpired={onSessionExpired} />}
 
       <HomeActivities key={`activities:${me?.user.id ?? session}`} me={me} session={session} perUnit={site.data?.quota_per_unit} onCelebrate={celebrate} onSessionExpired={onSessionExpired} />
+      <HomeLeaderboard me={me} />
       <ArcadeShowcase />
       <footer className="mt-16 flex flex-col items-center gap-2 border-t border-clover-100 pt-6 text-xs text-muted-foreground"><Clover size={20} petal="#8fd6a8" petalAlt="#bce3c9" /><p><Gift size={11} className="mr-1 inline" aria-hidden="true" />{site.data?.site_name ?? '福利站'} · 摘叶子，攒好运</p></footer>
     </SiteShell>
