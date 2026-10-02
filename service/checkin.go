@@ -107,15 +107,35 @@ func successfulTemporaryGrantsToday(db *gorm.DB, userID, newapiUserID int64, now
 	start := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
 	end := start.AddDate(0, 0, 1)
 
-	var total int64
-	err := db.Model(&model.Grant{}).
+	// SQLite 保存带时区的时间文本，不能用不同时区的墙上时间直接比较。
+	// 按真实时刻筛选也兼容已有 UTC/+08:00 混合记录；不改变成功状态、
+	// 绑定账号和额度类型的严格对账条件。流式读取避免加载全部历史到内存。
+	rows, err := db.Model(&model.Grant{}).
 		Where(
-			"user_id = ? AND newapi_user_id = ? AND quota_type = ? AND status = ? AND updated_at >= ? AND updated_at < ?",
-			userID, newapiUserID, QuotaTypeTemporary, GrantStatusSuccess, start, end,
+			"user_id = ? AND newapi_user_id = ? AND quota_type = ? AND status = ?",
+			userID, newapiUserID, QuotaTypeTemporary, GrantStatusSuccess,
 		).
-		Select("COALESCE(SUM(quota), 0)").
-		Scan(&total).Error
-	return total, err
+		Select("quota", "updated_at").Rows()
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var total int64
+	for rows.Next() {
+		var grant model.Grant
+		if err := db.ScanRows(rows, &grant); err != nil {
+			return 0, err
+		}
+		if grant.UpdatedAt.Before(start) || !grant.UpdatedAt.Before(end) {
+			continue
+		}
+		if (grant.Quota > 0 && total > math.MaxInt64-grant.Quota) ||
+			(grant.Quota < 0 && total < math.MinInt64-grant.Quota) {
+			return 0, errors.New("成功限时额度总额超出整数范围")
+		}
+		total += grant.Quota
+	}
+	return total, rows.Err()
 }
 
 // TodayStr returns today's "YYYY-MM-DD" in the configured timezone.

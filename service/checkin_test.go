@@ -395,6 +395,44 @@ func TestCheckinLegacyReconciliationSumsAllSuccessfulTemporaryGrants(t *testing.
 	}
 }
 
+// UTC 与北京时间写入的流水按真实时刻对账，包含起点、排除终点。
+func TestSuccessfulTemporaryGrantsTodayTimezoneBoundaries(t *testing.T) {
+	_, mock, db := setupGrantService(t)
+	defer mock.Close()
+	shanghai := LoadLocationOr("Asia/Shanghai")
+	now := time.Date(2026, 10, 2, 21, 50, 0, 0, time.UTC)
+	start := time.Date(2026, 10, 2, 16, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	rows := []struct {
+		at                time.Time
+		quota             int64
+		status, quotaType string
+		userID, newapiID  int64
+	}{
+		{now, 500, GrantStatusSuccess, QuotaTypeTemporary, 1, 42},
+		{now.In(shanghai), 300, GrantStatusSuccess, QuotaTypeTemporary, 1, 42},
+		{start, 10, GrantStatusSuccess, QuotaTypeTemporary, 1, 42},
+		{end.Add(-time.Nanosecond), 20, GrantStatusSuccess, QuotaTypeTemporary, 1, 42},
+		{start.Add(-time.Nanosecond), 1000, GrantStatusSuccess, QuotaTypeTemporary, 1, 42},
+		{end.In(shanghai), 2000, GrantStatusSuccess, QuotaTypeTemporary, 1, 42},
+		{now, 4000, GrantStatusFailed, QuotaTypeTemporary, 1, 42},
+		{now, 8000, GrantStatusPending, QuotaTypeTemporary, 1, 42},
+		{now, 16000, GrantStatusSuccess, QuotaTypePermanent, 1, 42},
+		{now, 32000, GrantStatusSuccess, QuotaTypeTemporary, 2, 42},
+		{now, 64000, GrantStatusSuccess, QuotaTypeTemporary, 1, 43},
+	}
+	for i, row := range rows {
+		grant := model.Grant{UserID: row.userID, NewapiUserID: row.newapiID, Type: "manual", RefID: int64(i + 1), Quota: row.quota, Status: row.status, QuotaType: row.quotaType, CreatedAt: row.at, UpdatedAt: row.at}
+		if err := db.Create(&grant).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := successfulTemporaryGrantsToday(db, 1, 42, now, "Asia/Shanghai")
+	if err != nil || got != 830 {
+		t.Fatalf("UTC and Shanghai timestamps in the same day: total=%d err=%v, want 830", got, err)
+	}
+}
+
 // TestCheckinOpenTimeBoundary 验证开放时间边界判定与默认不限制。
 func TestCheckinOpenTimeBoundary(t *testing.T) {
 	cfg := fixedConfig(true, 1000)
