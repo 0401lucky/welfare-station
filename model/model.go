@@ -60,6 +60,13 @@ func (Checkin) TableName() string { return "w_checkins" }
 
 // Activity is a welfare event (w_activities).
 type Activity struct {
+	ClaimMode     string    `gorm:"type:varchar(16);not null;default:direct" json:"claim_mode"`
+	PacketMode    string    `gorm:"type:varchar(16);not null;default:fixed" json:"packet_mode"`
+	TotalQuota    int64     `gorm:"not null;default:0" json:"total_quota"`
+	ClaimedQuota  int64     `gorm:"not null;default:0" json:"claimed_quota"`
+	MinQuota      int64     `gorm:"not null;default:0" json:"min_quota"`
+	CoverURL      string    `gorm:"type:varchar(2048);not null;default:''" json:"cover_url"`
+	RulesLocked   bool      `gorm:"-" json:"rules_locked"`
 	ID            int64     `gorm:"primaryKey;autoIncrement" json:"id"`
 	Title         string    `gorm:"type:varchar(100);not null" json:"title"`
 	Description   string    `gorm:"type:text" json:"description"`

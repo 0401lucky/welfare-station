@@ -55,7 +55,7 @@ describe('editable activity dates and payload', () => {
     expect(new Date(parseActivityLocal(draft.endText).value!).getTime() - new Date(parseActivityLocal(draft.startText).value!).getTime()).toBe(86400000)
     const prepared = prepareActivity({ ...draft, title: ' New event ', quota: 1, stockText: '10' })
     expect(prepared.payload?.title).toBe('New event')
-    expect(Object.keys(prepared.payload!).sort()).toEqual(['description', 'end_at', 'min_trust_level', 'per_user_limit', 'quota', 'start_at', 'status', 'title', 'total_count'].sort())
+    expect(Object.keys(prepared.payload!).sort()).toEqual(['description', 'end_at', 'min_trust_level', 'per_user_limit', 'quota', 'start_at', 'status', 'title', 'total_count', 'claim_mode', 'packet_mode', 'total_quota', 'min_quota', 'cover_url'].sort())
     expect(prepared.payload).not.toHaveProperty('claimed_count')
     expect(prepared.payload).not.toHaveProperty('instance')
   })

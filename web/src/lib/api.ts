@@ -111,7 +111,17 @@ export interface CheckinView {
   }
 }
 
-export interface Activity {
+export interface PacketFields {
+  claim_mode?: 'direct' | 'red_packet'
+  packet_mode?: 'fixed' | 'random'
+  total_quota?: number
+  claimed_quota?: number
+  min_quota?: number
+  cover_url?: string
+  rules_locked?: boolean
+}
+
+export interface Activity extends PacketFields {
   id: number
   title: string
   description: string
@@ -133,7 +143,7 @@ export interface Activity {
 
 // AdminActivity mirrors the raw model.Activity returned by admin endpoints
 // where status is 1 (on-shelf) / 2 (off-shelf) and times are RFC3339 strings.
-export interface AdminActivity {
+export interface AdminActivity extends PacketFields {
   id: number
   title: string
   description: string
@@ -279,9 +289,30 @@ export interface CheckinResult {
 }
 
 export interface ClaimResult {
+  claim_id?: number
+  replayed?: boolean
   quota: number
   seq: number
   grant_status: 'success' | 'failed' | 'pending'
+}
+
+export interface PacketOwnClaim extends ClaimResult {
+  claim_id: number
+  created_at: string
+}
+
+export interface PacketParticipant {
+  claim_id: number
+  nickname: string
+  avatar_url: string
+  quota: number
+  created_at: string
+  is_best: boolean
+}
+
+export interface RedPacketDetail extends Page<PacketParticipant> {
+  summary: Activity
+  own_claims: PacketOwnClaim[]
 }
 
 export interface CheckinConfig {

@@ -13,6 +13,8 @@ import { useNow } from '@/hooks/useNow'
 import { ActionLink } from './ActionLink'
 import { QueryFeedback } from './QueryFeedback'
 import { SitePanel } from './SiteShell'
+import { RedPacketDialog } from './RedPacketDialog'
+import { packetAttemptKey, readPacketAttempt } from '@/lib/redPacket'
 
 export type HomeSessionState = 'loading' | 'anonymous' | 'error' | 'authenticated'
 type ClaimFeedback = { result?: ClaimResult; error?: string }
@@ -46,6 +48,24 @@ export function HomeActivities({ me, session, perUnit, onCelebrate, onSessionExp
   // 倒计时每分钟走一格;页面隐藏时暂停。
   const now = useNow(60_000)
   const [filter, setFilter] = useState<HomeActivityFilter>('all')
+  const [packetId, setPacketId] = useState<number | null>(null)
+  const sectionRef = useRef<HTMLElement>(null)
+  const packetTrigger = useRef<HTMLElement | null>(null)
+  const openPacket = (id: number) => {
+    packetTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setPacketId(id)
+  }
+  const closePacket = () => {
+    const id = packetId
+    const trigger = packetTrigger.current
+    setPacketId(null)
+    // SiteDialog returns focus normally. Once a claim disables its trigger,
+    // defer until dialog cleanup has released its focus trap, then use details.
+    requestAnimationFrame(() => {
+      if (trigger?.isConnected && !trigger.matches(':disabled')) return
+      sectionRef.current?.querySelector<HTMLButtonElement>(`button[data-packet-detail="${id}"]`)?.focus({ preventScroll: true })
+    })
+  }
   const [feedback, setFeedback] = useState<Record<number, ClaimFeedback>>({})
   const submitting = useRef(false)
   const query = useQuery({
@@ -84,14 +104,16 @@ export function HomeActivities({ me, session, perUnit, onCelebrate, onSessionExp
 
   const onClaim = (activity: Activity) => {
     if (submitting.current || claim.isPending || query.isFetching || query.isError || session !== 'authenticated' || !me?.bound || activity.status !== 'available' || activity.user_claim_limit_reached || me.user.trust_level < activity.min_trust_level) return
+    if (activity.claim_mode === 'red_packet') { openPacket(activity.id); return }
     submitting.current = true
     setFeedback((previous) => ({ ...previous, [activity.id]: {} }))
     claim.mutate(activity.id)
   }
   const items = query.data?.filter((activity) => matchesHomeActivityFilter(activity.status, filter)) ?? []
+  const selectedPacket = query.data?.find(activity => activity.id === packetId)
 
   return (
-    <section className="site-anchor mt-7 sm:mt-8" id="welfare-activities" aria-labelledby="activities-heading">
+    <section ref={sectionRef} className="site-anchor mt-7 sm:mt-8" id="welfare-activities" aria-labelledby="activities-heading">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><h2 id="activities-heading" className="flex items-center gap-2 text-xl font-bold text-clover-900"><Clover size={25} stem={false} />福利活动</h2><p className="text-xs text-clover-700">限量叶子，先到先得</p></div>
         <div className="flex max-w-full flex-wrap items-center gap-1.5" aria-label="活动分类">
@@ -126,7 +148,7 @@ export function HomeActivities({ me, session, perUnit, onCelebrate, onSessionExp
                         {activity.description && (activity.description.length > 96 ? <details className="mt-1"><summary className="min-h-9 cursor-pointer rounded-lg py-1 text-xs text-clover-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500">查看活动说明</summary><p className="whitespace-pre-wrap break-words text-sm leading-6 text-clover-700">{activity.description}</p></details> : <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-clover-700">{activity.description}</p>)}
                       </div>
                     </div>
-                    <div className="flex items-baseline justify-between gap-2 lg:block"><p className="text-xs text-clover-700">每份额度</p><p className="break-all text-xl font-semibold tabular-nums text-gold-600 lg:mt-1">{formatUSD(activity.quota, perUnit)}</p></div>
+                    <div className="flex items-baseline justify-between gap-2 lg:block"><p className="text-xs text-clover-700">{activity.claim_mode === 'red_packet' ? activity.packet_mode === 'random' ? '拼手气红包 · 总额' : '普通红包 · 每份' : '每份额度'}</p><p className="break-all text-xl font-semibold tabular-nums text-gold-600 lg:mt-1">{formatUSD(activity.claim_mode === 'red_packet' && activity.packet_mode === 'random' ? activity.total_quota ?? 0 : activity.quota, perUnit)}</p></div>
                     <div className="min-w-0">
                       <div className="flex items-center justify-between gap-2 text-xs text-clover-700"><span>剩余 {activity.remaining}/{activity.total_count} 份</span>{activity.min_trust_level > 0 && <span>等级 ≥ {activity.min_trust_level}</span>}</div>
                       <div className="mt-2" role="progressbar" aria-label={`${activity.title}剩余份数`} aria-valuemin={0} aria-valuemax={activity.total_count} aria-valuenow={activity.remaining}><Progress value={activity.total_count > 0 ? activity.remaining / activity.total_count : 0} /></div>
@@ -135,8 +157,9 @@ export function HomeActivities({ me, session, perUnit, onCelebrate, onSessionExp
                     <div className="min-w-0 lg:w-40">
                       {active && session === 'anonymous' ? <ActionLink href="/api/oauth/linuxdo" variant="outline" className="w-full">登录后领取 <ArrowRight size={14} aria-hidden="true" /></ActionLink>
                         : active && me && !me.bound ? <ActionLink to="/bind" variant="outline" className="w-full">连接账号后领取</ActionLink>
-                          : <Button type="button" variant={active && !activity.user_claim_limit_reached ? 'default' : 'outline'} className="min-h-11 w-full" disabled={!active || session !== 'authenticated' || !me?.bound || trustTooLow || activity.user_claim_limit_reached || claim.isPending || query.isFetching || query.isError} onClick={() => onClaim(activity)}>{pending && <Spinner size={16} />}{pending ? '正在领取…' : !active ? statusText(activity.status) : session === 'loading' ? '正在确认账户' : session === 'error' ? '请先更新账户' : activity.user_claim_limit_reached ? '已达领取上限' : trustTooLow ? `需信任等级 ≥ ${activity.min_trust_level}` : activity.user_claim_count > 0 ? '再摘一片叶子' : '摘下这片叶子'}</Button>}
+                          : <Button type="button" variant={active && !activity.user_claim_limit_reached ? 'default' : 'outline'} className="min-h-11 w-full" disabled={!active || session !== 'authenticated' || !me?.bound || trustTooLow || activity.user_claim_limit_reached || claim.isPending || query.isFetching || query.isError} onClick={() => onClaim(activity)}>{pending && <Spinner size={16} />}{pending ? '正在领取…' : !active ? statusText(activity.status) : session === 'loading' ? '正在确认账户' : session === 'error' ? '请先更新账户' : activity.user_claim_limit_reached ? '已达领取上限' : trustTooLow ? `需信任等级 ≥ ${activity.min_trust_level}` : activity.claim_mode === 'red_packet' ? '领取红包' : activity.user_claim_count > 0 ? '再摘一片叶子' : '摘下这片叶子'}</Button>}
                       {me && active && activity.per_user_limit > 1 && !activity.user_claim_limit_reached && <p className="mt-1.5 text-center text-xs text-clover-700">每人限领 {activity.per_user_limit} 次</p>}
+                      {me && session === 'authenticated' && activity.claim_mode === 'red_packet' && (activity.user_claim_count > 0 || readPacketAttempt(packetAttemptKey(me.user.id, activity.id)) !== null) && <Button type="button" variant="ghost" className="mt-1 min-h-11 w-full text-xs" data-packet-detail={activity.id} onClick={() => openPacket(activity.id)}>查看领取详情</Button>}
                     </div>
                   </div>
                   {result && <div role="status" className={cn('mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-sm leading-6', result.grant_status === 'success' ? 'border-clover-100 bg-clover-50 text-clover-800' : 'border-gold-300 bg-cream text-clover-800')}><p className="flex flex-wrap items-center gap-1.5"><CheckCircle2 size={16} aria-hidden="true" />第 {result.seq} 次领取已记录 · {formatUSD(result.quota, perUnit)}{result.grant_status === 'success' ? ' 已到账' : result.grant_status === 'failed' ? ' · 额度发放遇到问题' : ' · 到账状态确认中'}</p>{result.grant_status !== 'success' && <ActionLink to="/records" variant="ghost" size="sm" className="text-xs">查看发放记录 <ArrowRight size={13} aria-hidden="true" /></ActionLink>}</div>}
@@ -144,6 +167,7 @@ export function HomeActivities({ me, session, perUnit, onCelebrate, onSessionExp
                 </SitePanel>
               })}</div>}
           </>}
+      {selectedPacket && me && session === 'authenticated' && <RedPacketDialog key={`${me.user.id}-${selectedPacket.id}`} activity={selectedPacket} userId={me.user.id} perUnit={perUnit} canClaim={!!me.bound && !query.isFetching && !query.isError && selectedPacket.status === 'available' && !selectedPacket.user_claim_limit_reached && me.user.trust_level >= selectedPacket.min_trust_level} onClose={closePacket} onSessionExpired={onSessionExpired} />}
     </section>
   )
 }

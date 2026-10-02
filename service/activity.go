@@ -100,6 +100,7 @@ func ListPublicActivities(db *gorm.DB, now time.Time, viewer *model.User) ([]Pub
 	out := make([]PublicActivity, 0, len(acts))
 	for i := range acts {
 		a := &acts[i]
+		NormalizeActivity(a)
 		avail := ActivityClaimAvailability(a, now)
 		remaining := a.TotalCount - a.ClaimedCount
 		if remaining < 0 {
@@ -166,70 +167,129 @@ func CanClaim(db *gorm.DB, a *model.Activity, user *model.User, newapiStatusOK b
 
 // ClaimResult is returned by DoClaim.
 type ClaimResult struct {
-	Claim  *model.Claim
-	Grant  *model.Grant
-	OutErr error
+	Replayed bool
+	Claim    *model.Claim
+	Grant    *model.Grant
+	OutErr   error
 }
 
-// DoClaim runs the full claim flow (R3.2 / R3.3):
-//  1. verify the new-api account is active (status == 1)
-//  2. business+grant insert inside one transaction, with the atomic stock
-//     decrement `UPDATE ... claimed_count+1 WHERE claimed_count < total_count`
-//  3. commit, then execute the payout.
-func DoClaim(db *gorm.DB, grants *GrantService, newapi *NewAPIClient, user *model.User, activityID int64, now time.Time) (*ClaimResult, error) {
-	// Fetch activity inside the tx too, to read fresh state at claim time.
-	var a model.Activity
-	if err := db.First(&a, activityID).Error; err != nil {
-		return nil, ErrActivityNotFound
+// DoClaim keeps body-less direct clients compatible; packets require expectedSeq.
+func DoClaim(db *gorm.DB, grants *GrantService, newapi *NewAPIClient, user *model.User, activityID int64, now time.Time, expectedSeq ...int) (*ClaimResult, error) {
+	started := time.Now()
+	seq := 0
+	if len(expectedSeq) > 0 {
+		seq = expectedSeq[0]
 	}
-
-	newapiStatusOK := true
-	if user.NewapiUserID != nil {
-		nu, err := newapi.GetUser(*user.NewapiUserID)
-		if err != nil {
-			return nil, errors.New("new-api 账号状态校验失败,请稍后再试")
-		}
-		newapiStatusOK = nu.Status == 1
+	if user == nil || user.Status != 1 {
+		return nil, errors.New("账号不可用")
 	}
-	nextSeq, err := CanClaim(db, &a, user, newapiStatusOK, now)
-	if err != nil {
-		return nil, err
-	}
-
 	var claim model.Claim
 	var grant model.Grant
-	err = db.Transaction(func(tx *gorm.DB) error {
-		// Atomic stock decrement (design.md §8.5): 0 rows → sold out.
-		res := tx.Model(&model.Activity{}).
-			Where("id = ? AND claimed_count < total_count", a.ID).
-			Update("claimed_count", gorm.Expr("claimed_count + 1"))
-		if res.Error != nil {
-			return res.Error
+	replayed := false
+	// First inspect under the same lock. A recorded operation does not depend on
+	// new-api availability, binding changes, expiry or the current personal limit.
+	lookup := func(tx *gorm.DB, a *model.Activity) error {
+		if a.ClaimMode != "red_packet" {
+			return nil
 		}
-		if res.RowsAffected == 0 {
-			return ErrActivitySoldOut
+		if seq <= 0 || int64(seq) > MaxActivityInteger {
+			return ErrPacketSequence
 		}
-
-		claim = model.Claim{ActivityID: a.ID, UserID: user.ID, Quota: a.Quota, Seq: nextSeq}
-		if err := tx.Create(&claim).Error; err != nil {
-			if isDuplicateErr(err) {
-				return ErrClaimLimit
-			}
-			return err
+		e := tx.Where("activity_id = ? AND user_id = ? AND seq = ?", activityID, user.ID, seq).First(&claim).Error
+		if errors.Is(e, gorm.ErrRecordNotFound) {
+			return nil
 		}
-		grant = model.Grant{
-			UserID:       user.ID,
-			NewapiUserID: *user.NewapiUserID,
-			Type:         "activity",
-			RefID:        claim.ID,
-			Quota:        a.Quota,
+		if e != nil {
+			return e
 		}
-		return grants.GrantTx(tx, &grant)
-	})
+		if e = tx.Where("type = ? AND ref_id = ?", "activity", claim.ID).First(&grant).Error; e != nil {
+			return e
+		}
+		replayed = true
+		return nil
+	}
+	err := WithActivityLock(db, activityID, lookup)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrActivityNotFound
+	}
 	if err != nil {
 		return nil, err
 	}
-
-	outErr := grants.ExecuteAfterCommit(&grant)
-	return &ClaimResult{Claim: &claim, Grant: &grant, OutErr: outErr}, nil
+	if replayed {
+		return &ClaimResult{Claim: &claim, Grant: &grant, Replayed: true}, nil
+	}
+	statusOK := true
+	if user.NewapiUserID != nil {
+		nu, e := newapi.GetUser(*user.NewapiUserID)
+		if e != nil {
+			// A concurrent identical operation may have committed during this lookup.
+			if re := WithActivityLock(db, activityID, lookup); re == nil && replayed {
+				return &ClaimResult{Claim: &claim, Grant: &grant, Replayed: true}, nil
+			}
+			return nil, errors.New("new-api 账号状态校验失败,请稍后再试")
+		}
+		statusOK = nu.Status == 1
+	}
+	err = WithActivityLock(db, activityID, func(tx *gorm.DB, a *model.Activity) error {
+		claim = model.Claim{}
+		grant = model.Grant{}
+		replayed = false
+		if e := lookup(tx, a); e != nil {
+			return e
+		}
+		if replayed {
+			return nil
+		}
+		next, e := CanClaim(tx, a, user, statusOK, now.Add(time.Since(started)))
+		if e != nil {
+			return e
+		}
+		if a.ClaimMode == "red_packet" && seq != next {
+			return ErrPacketSequence
+		}
+		if a.ClaimedCount >= a.TotalCount {
+			return ErrActivitySoldOut
+		}
+		amount := a.Quota
+		if a.ClaimMode == "red_packet" {
+			if a.PacketMode == "random" {
+				amount, e = packetAmount(a.TotalQuota-a.ClaimedQuota, a.TotalCount-a.ClaimedCount, a.MinQuota)
+				if e != nil {
+					return e
+				}
+			}
+			if amount <= 0 || amount > a.TotalQuota-a.ClaimedQuota {
+				return errors.New("红包余额数据异常")
+			}
+		}
+		updates := map[string]any{"claimed_count": gorm.Expr("claimed_count + 1")}
+		if a.ClaimMode == "red_packet" {
+			updates["claimed_quota"] = gorm.Expr("claimed_quota + ?", amount)
+		}
+		if e := tx.Model(a).Updates(updates).Error; e != nil {
+			return e
+		}
+		claim = model.Claim{ActivityID: a.ID, UserID: user.ID, Quota: amount, Seq: next}
+		if e := tx.Create(&claim).Error; e != nil {
+			return e
+		}
+		grant = model.Grant{UserID: user.ID, NewapiUserID: *user.NewapiUserID, Type: "activity", RefID: claim.ID, Quota: amount}
+		return grants.GrantTx(tx, &grant)
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrActivityNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	var outErr error
+	if !replayed {
+		outErr = grants.ExecuteAfterCommit(&grant)
+		// ExecuteAfterCommit persists status but does not mutate the supplied struct.
+		if e := db.First(&grant, grant.ID).Error; e != nil {
+			outErr = e
+			grant.Status = GrantStatusPending
+		}
+	}
+	return &ClaimResult{Claim: &claim, Grant: &grant, OutErr: outErr, Replayed: replayed}, nil
 }

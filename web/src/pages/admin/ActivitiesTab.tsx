@@ -4,10 +4,11 @@ import { Copy, Gift, Plus } from 'lucide-react'
 import { ActionLink, QueryFeedback, SiteConfirmDialog, SiteDialog, SiteMoneyInput, SitePanel } from '@/components/site'
 import { Badge, Button, Input, Progress, Spinner, Table, Textarea } from '@/components/ui'
 import Quota from '@/components/Quota'
+import { PacketCover } from '@/components/site/PacketCover'
 import { toast } from '@/components/Toast'
 import { useSiteInfo } from '@/hooks/useMe'
 import { api, type ActivityClaim, type AdminActivity } from '@/lib/api'
-import { formatDateTime } from '@/lib/format'
+import { formatDateTime, formatUSD } from '@/lib/format'
 import { activityPhase, activityPhaseLabels, adminHref } from './adminLedger'
 import { makeActivityCopyDraft, makeActivityDraft, prepareActivity, type ActivityDraft, type ActivityPayload } from './adminValidation'
 import { AdminField, AdminHeading, AdminQueryFeedback, AdminRefresh, adminQueryRetry, fieldDescription, useAdminBeforeUnload, useAdminMoneyValidity, useAdminPermissionError, type AdminPanelProps } from './adminShared'
@@ -51,6 +52,9 @@ export default function ActivitiesTab({ adminId, active = true }: AdminPanelProp
   useAdminBeforeUnload(!!editing || save.isPending)
   const now = Date.now()
   const prepared = editing ? prepareActivity(editing) : null
+  const packet = editing?.claimMode === 'red_packet'
+  const random = packet && editing?.packetMode === 'random'
+  const financialLocked = packet && editing?.rulesLocked
   const invalid = !prepared?.payload || money.invalid || !site.data
   const update = (change: Partial<ActivityDraft>) => {
     if (savingLock.current || !editingRef.current) return
@@ -59,9 +63,10 @@ export default function ActivitiesTab({ adminId, active = true }: AdminPanelProp
     setEditing(next)
   }
   function openEditor(activity?: AdminActivity, copy = false) {
-    if (savingLock.current || editingRef.current || remove.isPending) return
+    if (savingLock.current || editingRef.current || remove.isPending || !site.data) return
     const instance = ++nextInstance.current
     const draft = copy && activity ? makeActivityCopyDraft(instance, activity) : makeActivityDraft(instance, activity)
+    if (!draft.minQuota) draft.minQuota = Math.max(1, Math.round(perUnit / 100))
     editingRef.current = draft
     setEditing(draft)
     money.reset(); save.reset()
@@ -84,7 +89,7 @@ export default function ActivitiesTab({ adminId, active = true }: AdminPanelProp
         const phase = activityPhase(activity, now)
         return [
         <div key="title" className="min-w-36 max-w-56 break-words"><p className="font-semibold text-clover-900">{activity.title}</p><p className="mt-1 text-xs text-clover-700">活动 #{activity.id}</p></div>,
-        <Quota key="quota" value={activity.quota} className="whitespace-nowrap font-medium tabular-nums" />,
+        <div key="quota"><Quota value={activity.claim_mode === 'red_packet' && activity.packet_mode === 'random' ? activity.total_quota ?? 0 : activity.quota} className="whitespace-nowrap font-medium tabular-nums" /><p className="mt-1 text-xs text-clover-700">{activity.claim_mode === 'red_packet' ? activity.packet_mode === 'random' ? '拼手气 · 总金额' : '普通红包 · 每份' : '直接领取'}</p></div>,
         <div key="progress" className="w-28"><Progress value={activity.total_count > 0 ? activity.claimed_count / activity.total_count : 0} /><p className="mt-1 text-xs tabular-nums text-clover-700">{activity.claimed_count} / {activity.total_count} 份</p></div>,
         <div key="status" className="flex flex-wrap gap-1"><Badge className={activity.status === 1 ? 'border border-clover-200 bg-clover-50 text-clover-800' : 'border border-clover-100 bg-muted text-clover-700'}>{activity.status === 1 ? '上架' : '下架'}</Badge>{phase !== 'off' && <Badge className={phase === 'ended' ? 'border border-clover-100 bg-muted text-clover-700' : phase === 'upcoming' ? 'border border-gold-300 bg-cream text-gold-600' : 'border border-clover-300 bg-clover-100 text-clover-900'}>{activityPhaseLabels[phase]}</Badge>}</div>,
         <div key="dates" className="min-w-36 text-xs leading-5 text-clover-700"><p>{formatDateTime(activity.start_at)}</p><p>至 {formatDateTime(activity.end_at)}</p></div>,
@@ -97,14 +102,23 @@ export default function ActivitiesTab({ adminId, active = true }: AdminPanelProp
         <fieldset disabled={save.isPending} className="space-y-4">
           <AdminField id="activity-title" label="活动标题" error={prepared.errors.title}><Input id="activity-title" className="min-h-11" value={editing.title} aria-invalid={!!prepared.errors.title} aria-describedby={fieldDescription('activity-title', false, prepared.errors.title)} onChange={event => update({ title: event.target.value })} /></AdminField>
           <AdminField id="activity-description" label="活动说明" hint="保留换行，可填写领取条件和补充说明。"><Textarea id="activity-description" rows={4} value={editing.description} aria-describedby="activity-description-hint" onChange={event => update({ description: event.target.value })} /></AdminField>
+          <AdminField id="activity-claim-mode" label="领取方式" hint={editing.rulesLocked ? '已有领取记录，不能切换领取方式。' : undefined}><select id="activity-claim-mode" className="min-h-11 w-full rounded-xl border border-clover-200 bg-surface px-3 text-clover-900" disabled={editing.rulesLocked} value={editing.claimMode ?? 'direct'} onChange={event => { money.reset(); update({ claimMode: event.target.value as ActivityDraft['claimMode'] }) }}><option value="direct">直接领取</option><option value="red_packet">红包领取</option></select></AdminField>
+          {packet && <>
+            <AdminField id="activity-packet-mode" label="红包玩法"><select id="activity-packet-mode" className="min-h-11 w-full rounded-xl border border-clover-200 bg-surface px-3 text-clover-900" disabled={financialLocked} value={editing.packetMode ?? 'fixed'} onChange={event => { money.reset(); update({ packetMode: event.target.value as ActivityDraft['packetMode'] }) }}><option value="fixed">普通红包（固定每份金额）</option><option value="random">拼手气红包</option></select></AdminField>
+            {financialLocked && <p role="status" className="rounded-xl bg-cream p-3 text-sm text-clover-800">已有领取记录，金额、玩法和总份数已锁定。追加额度请复制为新活动。</p>}
+            <AdminField id="activity-cover" label="红包封面图片地址" hint="留空使用默认角色封面。支持 HTTPS 图片或本站绝对路径；加载失败时回退默认封面。" error={prepared.errors.cover}><Input id="activity-cover" value={editing.coverUrl ?? ''} className="min-h-11" onChange={event => update({ coverUrl: event.target.value })} aria-invalid={!!prepared.errors.cover} aria-describedby={fieldDescription('activity-cover', true, prepared.errors.cover)} /></AdminField>
+            <PacketCover url={editing.coverUrl?.trim()} className="mx-auto w-32 rounded-xl" />
+          </>}
           <div className="grid gap-4 sm:grid-cols-2">
-            <AdminField id="activity-quota" label="每份面值（美元）" error={prepared.errors.quota}><SiteMoneyInput key={editing.instance} id="activity-quota" perUnit={perUnit} value={editing.quota} required disabled={!site.data} aria-invalid={!!prepared.errors.quota} aria-describedby={fieldDescription('activity-quota', false, prepared.errors.quota)} onChange={quota => update({ quota })} onValidityChange={valid => money.set('quota', valid)} /></AdminField>
-            <AdminField id="activity-stock" label="总份数" error={prepared.errors.stock} hint={editing.id ? `已领取 ${editing.claimedCount} 份；总份数不能低于已领取份数。` : '填写正整数。'}><Input id="activity-stock" className="min-h-11" inputMode="numeric" value={editing.stockText} aria-invalid={!!prepared.errors.stock} aria-describedby={fieldDescription('activity-stock', true, prepared.errors.stock)} onChange={event => update({ stockText: event.target.value })} /></AdminField>
+            {random ? <><AdminField id="activity-total-quota" label="红包总金额（美元）" error={prepared.errors.totalQuota}><SiteMoneyInput key={`${editing.instance}-total`} id="activity-total-quota" perUnit={perUnit} value={editing.totalQuota} required disabled={!site.data || financialLocked} onChange={totalQuota => update({ totalQuota })} onValidityChange={valid => money.set('totalQuota', valid)} /></AdminField><AdminField id="activity-min-quota" label="最低每份金额（美元）" error={prepared.errors.minQuota}><SiteMoneyInput key={`${editing.instance}-min`} id="activity-min-quota" perUnit={perUnit} value={editing.minQuota} required disabled={!site.data || financialLocked} onChange={minQuota => update({ minQuota })} onValidityChange={valid => money.set('minQuota', valid)} /></AdminField></>
+              : <AdminField id="activity-quota" label="每份面值（美元）" error={prepared.errors.quota}><SiteMoneyInput key={`${editing.instance}-${editing.claimMode}`} id="activity-quota" perUnit={perUnit} value={editing.quota} required disabled={!site.data || financialLocked} aria-invalid={!!prepared.errors.quota} aria-describedby={fieldDescription('activity-quota', false, prepared.errors.quota)} onChange={quota => update({ quota })} onValidityChange={valid => money.set('quota', valid)} /></AdminField>}
+            <AdminField id="activity-stock" label="总份数" error={prepared.errors.stock} hint={editing.id ? `已领取 ${editing.claimedCount} 份；总份数不能低于已领取份数。` : '填写正整数。'}><Input id="activity-stock" disabled={financialLocked} className="min-h-11" inputMode="numeric" value={editing.stockText} aria-invalid={!!prepared.errors.stock} aria-describedby={fieldDescription('activity-stock', true, prepared.errors.stock)} onChange={event => update({ stockText: event.target.value })} /></AdminField>
             <AdminField id="activity-limit" label="每人限领" error={prepared.errors.limit} hint="留空或填 0 时，服务端按默认 1 份保存。"><Input id="activity-limit" className="min-h-11" inputMode="numeric" value={editing.limitText} aria-invalid={!!prepared.errors.limit} aria-describedby={fieldDescription('activity-limit', true, prepared.errors.limit)} onChange={event => update({ limitText: event.target.value })} /></AdminField>
             <AdminField id="activity-trust" label="最低信任等级" error={prepared.errors.trust} hint="LinuxDO 信任等级，范围 0–4。"><Input id="activity-trust" className="min-h-11" inputMode="numeric" value={editing.trustText} aria-invalid={!!prepared.errors.trust} aria-describedby={fieldDescription('activity-trust', true, prepared.errors.trust)} onChange={event => update({ trustText: event.target.value })} /></AdminField>
             <AdminField id="activity-start" label="开始时间（设备时区）" error={prepared.errors.start}><Input id="activity-start" type="datetime-local" step="any" className="min-h-11" value={editing.startText} aria-invalid={!!prepared.errors.start} aria-describedby={fieldDescription('activity-start', false, prepared.errors.start)} onChange={event => update({ startText: event.target.value })} /></AdminField>
             <AdminField id="activity-end" label="结束时间（设备时区）" error={prepared.errors.end}><Input id="activity-end" type="datetime-local" step="any" className="min-h-11" value={editing.endText} aria-invalid={!!prepared.errors.end} aria-describedby={fieldDescription('activity-end', false, prepared.errors.end)} onChange={event => update({ endText: event.target.value })} /></AdminField>
           </div>
+          {packet && prepared.payload && <p className="break-all text-sm text-clover-800">红包总额：{formatUSD(prepared.payload.total_quota ?? 0, perUnit)} · {prepared.payload.total_count} 份</p>}
           <label className="flex min-h-11 items-center gap-2 text-sm font-medium text-clover-900"><input type="checkbox" className="h-5 w-5 accent-clover-600" checked={editing.status === 1} onChange={event => update({ status: event.target.checked ? 1 : 2 })} />上架活动</label>
         </fieldset>
         {!site.data && <QueryFeedback kind={site.isError ? 'error' : 'loading'} title="金额换算信息尚未就绪" compact onRetry={site.isError ? () => void site.refetch() : undefined} retrying={site.isFetching} />}

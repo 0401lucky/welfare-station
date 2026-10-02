@@ -1,4 +1,5 @@
 import type { AdminActivity, CheckinConfig, DrawTier } from '@/lib/api'
+import { validPacketCover } from '@/lib/redPacket'
 
 export type Parsed<T> = { value: T; error?: never } | { value?: never; error: string }
 
@@ -89,6 +90,12 @@ export function validateActivityDates(start: string, end: string): { start?: str
 }
 
 export interface ActivityDraft {
+  claimMode?: 'direct' | 'red_packet'
+  packetMode?: 'fixed' | 'random'
+  totalQuota?: number
+  minQuota?: number
+  coverUrl?: string
+  rulesLocked?: boolean
   instance: number
   id?: number
   /** 复制来源的活动 ID,仅用于对话框提示;提交时不发送。 */
@@ -107,12 +114,15 @@ export interface ActivityDraft {
   status: number
 }
 
-export type ActivityPayload = Pick<AdminActivity, 'title' | 'description' | 'quota' | 'total_count' | 'per_user_limit' | 'min_trust_level' | 'start_at' | 'end_at' | 'status'>
+export type ActivityPayload = Pick<AdminActivity, 'title' | 'description' | 'quota' | 'total_count' | 'per_user_limit' | 'min_trust_level' | 'start_at' | 'end_at' | 'status' | 'claim_mode' | 'packet_mode' | 'total_quota' | 'min_quota' | 'cover_url'>
 
 export function makeActivityDraft(instance: number, activity?: AdminActivity, now = Date.now()): ActivityDraft {
   const start = activity?.start_at ?? new Date(Math.floor(now / 60000) * 60000).toISOString()
   const end = activity?.end_at ?? new Date(Math.floor(now / 60000) * 60000 + 86400000).toISOString()
   return {
+    claimMode: activity?.claim_mode ?? 'direct', packetMode: activity?.packet_mode ?? 'fixed',
+    totalQuota: activity?.total_quota, minQuota: activity?.min_quota, coverUrl: activity?.cover_url ?? '',
+    rulesLocked: !!activity && (activity.rules_locked || activity.claimed_count > 0),
     instance, id: activity?.id, claimedCount: activity?.claimed_count ?? 0,
     title: activity?.title ?? '', description: activity?.description ?? '', quota: activity?.quota,
     stockText: activity ? String(activity.total_count) : '', limitText: String(activity?.per_user_limit ?? 1), trustText: String(activity?.min_trust_level ?? 0),
@@ -127,7 +137,7 @@ export function makeActivityDraft(instance: number, activity?: AdminActivity, no
 export function makeActivityCopyDraft(instance: number, source: AdminActivity): ActivityDraft {
   return {
     ...makeActivityDraft(instance, source),
-    id: undefined, copiedFrom: source.id, claimedCount: 0,
+    id: undefined, copiedFrom: source.id, claimedCount: 0, rulesLocked: false,
     title: `${source.title}（副本）`,
     startText: '', endText: '', originalStart: undefined, originalEnd: undefined,
   }
@@ -158,22 +168,36 @@ export function validateUserNote(text: string): Parsed<string> {
 }
 
 export function prepareActivity(draft: ActivityDraft): { errors: Record<string, string | undefined>; payload?: ActivityPayload } {
+  const packet = draft.claimMode === 'red_packet'
+  const random = packet && draft.packetMode === 'random'
+  const positive = (n: number | undefined) => n != null && Number.isSafeInteger(n) && n > 0
   const stock = parseAdminInteger(draft.stockText, '总份数', 1)
   const limit = draft.limitText.trim() ? parseAdminInteger(draft.limitText, '每人限领') : { value: 1 }
   const trust = parseAdminInteger(draft.trustText, '最低信任等级', 0, 4)
   const dates = validateActivityDates(draft.startText, draft.endText)
   const errors: Record<string, string | undefined> = {
     title: draft.title.trim() ? undefined : '请填写活动标题。',
-    quota: draft.quota == null || !Number.isSafeInteger(draft.quota) || draft.quota <= 0 ? '活动面值须大于 0，且至少为 1 quota。' : undefined,
+    quota: !random && !positive(draft.quota) ? '活动面值须大于 0，且至少为 1 quota。' : undefined,
+    totalQuota: random && !positive(draft.totalQuota) ? '总金额须为正整数额度。' : undefined,
+    minQuota: random && !positive(draft.minQuota) ? '最低金额须至少为 1 quota。' : undefined,
+    cover: packet && !validPacketCover(draft.coverUrl?.trim() ?? '') ? '请填写 HTTPS 图片地址或本站绝对路径。' : undefined,
     stock: stock.error || (stock.value != null && stock.value < draft.claimedCount ? `总份数不能小于已领取的 ${draft.claimedCount} 份。` : undefined),
     limit: limit.error, trust: trust.error, start: dates.start, end: dates.end,
     status: [1, 2].includes(draft.status) ? undefined : '请选择有效的上架状态。',
+  }
+  if (packet && stock.value && (random ? positive(draft.minQuota) : positive(draft.quota))) {
+    const total = stock.value * (random ? draft.minQuota! : draft.quota!)
+    if (!Number.isSafeInteger(total)) errors.stock = '金额与份数乘积超出安全范围。'
+    else if (random && positive(draft.totalQuota) && total > draft.totalQuota!) errors.totalQuota = '总金额不能低于最低每份金额 × 总份数。'
   }
   if (Object.values(errors).some(Boolean)) return { errors }
   const start = parseActivityLocal(draft.startText).value!
   const end = parseActivityLocal(draft.endText).value!
   return { errors, payload: {
-    title: draft.title.trim(), description: draft.description, quota: draft.quota!, total_count: stock.value!, per_user_limit: limit.value!, min_trust_level: trust.value!,
+    title: draft.title.trim(), description: draft.description, quota: random ? 0 : draft.quota!, total_count: stock.value!, per_user_limit: limit.value!, min_trust_level: trust.value!,
+    claim_mode: draft.claimMode ?? 'direct', packet_mode: draft.packetMode ?? 'fixed',
+    total_quota: packet ? (random ? draft.totalQuota! : draft.quota! * stock.value!) : 0,
+    min_quota: random ? draft.minQuota! : 0, cover_url: packet ? draft.coverUrl?.trim() ?? '' : '',
     start_at: draft.originalStart && draft.startText === formatActivityLocal(draft.originalStart) ? draft.originalStart : start,
     end_at: draft.originalEnd && draft.endText === formatActivityLocal(draft.originalEnd) ? draft.originalEnd : end,
     status: draft.status,

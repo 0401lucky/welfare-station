@@ -38,7 +38,10 @@ export function readCheckinResult(value: unknown): CheckinResult | null {
 
 export function readClaimResult(value: unknown): ClaimResult | null {
   if (!isRecord(value) || !isQuota(value.quota) || !isQuota(value.seq) || value.seq < 1 || !isGrantStatus(value.grant_status)) return null
-  return { quota: value.quota, seq: value.seq, grant_status: value.grant_status }
+  return { quota: value.quota, seq: value.seq, grant_status: value.grant_status,
+    ...(isQuota(value.claim_id) && value.claim_id > 0 ? { claim_id: value.claim_id } : {}),
+    ...(typeof value.replayed === 'boolean' ? { replayed: value.replayed } : {}),
+  }
 }
 
 export function readDrawResult(value: unknown): DrawResult | null {

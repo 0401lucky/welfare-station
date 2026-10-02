@@ -36,6 +36,7 @@ func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
 	// ---- M6: activities (public list + user claim) ----
 	api.GET("/activities", app.Auth.OptionalUser(), app.ListActivities)
 	user.POST("/activities/:id/claim", middleware.RateLimitUser(), app.ClaimActivity)
+	user.GET("/activities/:id/red-packet", app.RedPacketDetail)
 
 	// ---- 好运榜:匿名可看,登录用户多一个「我的名次」----
 	api.GET("/leaderboard", app.Auth.OptionalUser(), app.Leaderboard)

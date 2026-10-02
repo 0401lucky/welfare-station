@@ -242,11 +242,19 @@ func (a *App) AdminListActivities(c *gin.Context) {
 		common.InternalError(c, "读取活动失败")
 		return
 	}
+	for i := range acts {
+		service.NormalizeActivity(&acts[i])
+	}
 	common.Ok(c, acts)
 }
 
 func (a *App) AdminCreateActivity(c *gin.Context) {
 	var body struct {
+		ClaimMode     string `json:"claim_mode"`
+		PacketMode    string `json:"packet_mode"`
+		TotalQuota    int64  `json:"total_quota"`
+		MinQuota      int64  `json:"min_quota"`
+		CoverURL      string `json:"cover_url"`
 		Title         string `json:"title"`
 		Description   string `json:"description"`
 		Quota         int64  `json:"quota"`
@@ -271,7 +279,7 @@ func (a *App) AdminCreateActivity(c *gin.Context) {
 		common.BadRequest(c, "end_at 需为 RFC3339 时间")
 		return
 	}
-	if body.Title == "" || body.Quota <= 0 || body.TotalCount <= 0 {
+	if body.Title == "" || body.TotalCount <= 0 {
 		common.BadRequest(c, "title/quota/total_count 必填且需为正数")
 		return
 	}
@@ -290,6 +298,7 @@ func (a *App) AdminCreateActivity(c *gin.Context) {
 		st = service.ActivityStatusOn
 	}
 	a2 := model.Activity{
+		ClaimMode: body.ClaimMode, PacketMode: body.PacketMode, TotalQuota: body.TotalQuota, MinQuota: body.MinQuota, CoverURL: body.CoverURL,
 		Title:         body.Title,
 		Description:   body.Description,
 		Quota:         body.Quota,
@@ -299,6 +308,10 @@ func (a *App) AdminCreateActivity(c *gin.Context) {
 		StartAt:       startAt,
 		EndAt:         endAt,
 		Status:        st,
+	}
+	if err := service.ValidateActivity(&a2, a.Config.QuotaPerUnit); err != nil {
+		common.BadRequest(c, err.Error())
+		return
 	}
 	if err := a.DB.Create(&a2).Error; err != nil {
 		common.InternalError(c, "创建活动失败")
@@ -321,6 +334,11 @@ func (a *App) AdminUpdateActivity(c *gin.Context) {
 		return
 	}
 	var body struct {
+		ClaimMode     string `json:"claim_mode"`
+		PacketMode    string `json:"packet_mode"`
+		TotalQuota    int64  `json:"total_quota"`
+		MinQuota      int64  `json:"min_quota"`
+		CoverURL      string `json:"cover_url"`
 		Title         string `json:"title"`
 		Description   string `json:"description"`
 		Quota         int64  `json:"quota"`
@@ -345,7 +363,7 @@ func (a *App) AdminUpdateActivity(c *gin.Context) {
 		common.BadRequest(c, "end_at 需为 RFC3339 时间")
 		return
 	}
-	if body.Title == "" || body.Quota <= 0 || body.TotalCount <= 0 {
+	if body.Title == "" || body.TotalCount <= 0 {
 		common.BadRequest(c, "title/quota/total_count 必填且需为正数")
 		return
 	}
@@ -371,6 +389,7 @@ func (a *App) AdminUpdateActivity(c *gin.Context) {
 	}
 	// 只更新白名单字段：claimed_count / id / created_at 不受请求体影响。
 	updates := model.Activity{
+		ClaimMode: body.ClaimMode, PacketMode: body.PacketMode, TotalQuota: body.TotalQuota, MinQuota: body.MinQuota, CoverURL: body.CoverURL,
 		Title:         body.Title,
 		Description:   body.Description,
 		Quota:         body.Quota,
@@ -381,15 +400,20 @@ func (a *App) AdminUpdateActivity(c *gin.Context) {
 		EndAt:         endAt,
 		Status:        body.Status,
 	}
-	// before 必须在 Updates 之前拷贝:gorm 会把新值写回 act,取晚了快照与 after 相同。
-	before := act
-	if err := a.DB.Model(&act).
-		Select("title", "description", "quota", "total_count", "per_user_limit", "min_trust_level", "start_at", "end_at", "status").
-		Updates(updates).Error; err != nil {
-		common.InternalError(c, "更新活动失败")
+	if err := service.ValidateActivity(&updates, a.Config.QuotaPerUnit); err != nil {
+		common.BadRequest(c, err.Error())
 		return
 	}
-	a.DB.First(&act, id)
+	before, act, err := service.UpdateActivity(a.DB, id, updates)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.Fail(c, http.StatusNotFound, "活动不存在")
+		} else {
+			common.BadRequest(c, err.Error())
+		}
+		return
+	}
+
 	a.audit(c, service.AuditUpdateActivity, service.AuditTargetActivity, act.ID, service.AuditDiff{Before: before, After: act})
 	common.Ok(c, act)
 }
@@ -400,13 +424,18 @@ func (a *App) AdminDeleteActivity(c *gin.Context) {
 		common.BadRequest(c, "无效的活动 ID")
 		return
 	}
-	// 先读一份留作审计快照;不存在时保持原有语义(删除幂等,照常返回 deleted)。
 	var before model.Activity
-	found := a.DB.First(&before, id).Error == nil
-	if err := a.DB.Delete(&model.Activity{}, id).Error; err != nil {
+	found := false
+	err = service.WithActivityLock(a.DB, id, func(tx *gorm.DB, current *model.Activity) error {
+		before = *current
+		found = true
+		return tx.Delete(&model.Activity{}, id).Error
+	})
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		common.InternalError(c, "删除活动失败")
 		return
 	}
+
 	if found {
 		a.audit(c, service.AuditDeleteActivity, service.AuditTargetActivity, id, before)
 	}
