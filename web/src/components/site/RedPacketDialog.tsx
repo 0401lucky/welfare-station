@@ -86,7 +86,9 @@ export function RedPacketDialog({ activity, userId, perUnit, canClaim, onClose, 
   }
   const eligible = canClaim && summary.status === 'available' && !summary.user_claim_limit_reached
 
-  return <SiteDialog open title={activity.title} description={activity.packet_mode === 'random' ? '拼手气红包 · 拆开看看你的好运' : '普通红包 · 一份心意，一份好运'} size="sm" onClose={onClose}>
+  const hasFeedback = claim.isPending || attempt !== null || storageWarning || query.isPending || (query.isError && !nonparticipant) || !!error
+
+  return <SiteDialog open title={activity.title} description={activity.packet_mode === 'random' ? '拼手气红包 · 拆开看看你的好运' : '普通红包 · 一份心意，一份好运'} size="sm" frameless={showCover} className={showCover ? 'max-w-[min(18rem,calc((100dvh-8rem)*2/3))]' : undefined} onClose={onClose}>
     <div className="space-y-4">
       {showCover && <div className="relative mx-auto w-full max-w-72 overflow-hidden rounded-2xl border border-gold-300 shadow-leaf" style={{ perspective: 900 }}>
         <PacketCover url={activity.cover_url} className="block h-auto w-full" />
@@ -97,12 +99,14 @@ export function RedPacketDialog({ activity, userId, perUnit, canClaim, onClose, 
           {claim.isPending ? <Spinner size={24} /> : '开'}
         </motion.button></div>
       </div>}
+      {hasFeedback && <div className={showCover ? 'space-y-3 rounded-2xl bg-surface p-4 shadow-leaf' : 'space-y-3'}>
       {claim.isPending && <p role="status" className="text-center text-sm text-clover-700">正在拆开红包，确认领取结果…</p>}
       {attempt !== null && !claim.isPending && <p role="status" className="text-sm leading-6 text-clover-700">上次领取结果尚未确认。点击「开」只会查询或重试同一份，不会消耗下一次机会。</p>}
       {storageWarning && <p className="text-xs text-clover-700">浏览器未允许保存领取序号；刷新后将先核对已有领取记录。</p>}
       {query.isPending && <QueryFeedback kind="loading" title="正在核对领取记录…" compact />}
       {query.isError && !nonparticipant && <QueryFeedback kind="error" title="领取记录暂时无法确认" description={query.error.message} onRetry={() => void query.refetch()} retrying={query.isFetching} compact />}
       {error && <QueryFeedback kind="error" title="本次领取未能确认" description={error} compact onRetry={() => void query.refetch()} retrying={query.isFetching} />}
+      </div>}
       {!showCover && displayed && <div className="relative overflow-hidden rounded-2xl border border-gold-300 bg-cream p-5 text-center" role="status">
         {celebrating && <div className="pointer-events-none absolute inset-0" aria-hidden="true">{[15, 38, 62, 84].map((left, index) => <motion.span key={left} className="absolute top-0 text-gold-500" style={{ left: `${left}%` }} initial={{ y: -30, opacity: 0 }} animate={{ y: 170, opacity: [0, 1, 0], rotate: 100 }} transition={{ duration: 1.4, delay: index * 0.12 }}><Clover size={20} stem={false} /></motion.span>)}</div>}
         <p className="text-sm text-clover-700">第 {displayed.seq} 份红包</p>
@@ -110,7 +114,7 @@ export function RedPacketDialog({ activity, userId, perUnit, canClaim, onClose, 
         <p className="text-sm text-clover-800">{displayed.grant_status === 'success' ? '已到账，愿好运常伴你' : displayed.grant_status === 'failed' ? '领取已记录 · 发放失败，等待补发' : '领取已记录 · 到账状态确认中'}</p>
         {displayed.grant_status !== 'success' && <ActionLink to="/records" size="sm" variant="ghost" onClick={onClose}>查看发放记录</ActionLink>}
       </div>}
-      {query.data && <>
+      {!showCover && query.data && <>
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-clover-700"><span>已领取 {summary.claimed}/{summary.total_count} 份</span><Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={query.isFetching || claim.isPending} onClick={() => void query.refetch()}>刷新领取详情</Button></div>
         {own.length > 1 && <details className="text-sm text-clover-800"><summary className="min-h-11 cursor-pointer py-3">我的 {own.length} 次领取</summary><ul className="space-y-2">{own.map(row => <li key={row.claim_id} className="flex flex-wrap justify-between gap-2"><span>第 {row.seq} 次 · {formatUSD(row.quota, perUnit)}</span><span>{row.grant_status === 'success' ? '已到账' : row.grant_status === 'failed' ? '等待补发' : '确认中'}</span></li>)}</ul></details>}
         <ul aria-label="红包领取明细" className="divide-y divide-clover-100">{query.data.items.map(row => <li key={row.claim_id} className="flex min-w-0 items-center gap-2 py-3">

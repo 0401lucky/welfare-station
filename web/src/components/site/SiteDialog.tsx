@@ -27,12 +27,13 @@ export interface SiteDialogProps {
   initialFocusRef?: RefObject<HTMLElement>
   role?: 'dialog' | 'alertdialog'
   className?: string
+  frameless?: boolean
 }
 
 /** Named, focus-contained dialogs for the non-game workspace. */
 export function SiteDialog({
   open, title, description, children, footer, onClose, loading = false,
-  size = 'md', initialFocusRef, role = 'dialog', className,
+  size = 'md', initialFocusRef, role = 'dialog', className, frameless = false,
 }: SiteDialogProps) {
   const titleId = useId()
   const descriptionId = useId()
@@ -112,10 +113,10 @@ export function SiteDialog({
         aria-describedby={description ? descriptionId : role === 'alertdialog' && children ? contentId : undefined}
         aria-busy={loading || undefined}
         tabIndex={-1}
-        className={cn('flex max-h-[calc(100dvh-1.5rem)] w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-clover-200 bg-surface shadow-leaf outline-none sm:max-h-[calc(100dvh-3rem)]', widths[size], className)}
+        className={cn('relative flex max-h-[calc(100dvh-1.5rem)] w-full min-w-0 flex-col outline-none sm:max-h-[calc(100dvh-3rem)]', !frameless && 'overflow-hidden rounded-2xl border border-clover-200 bg-surface shadow-leaf', widths[size], className)}
       >
-        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-clover-100 px-5 py-4 sm:px-6">
-          <div className="min-w-0">
+        <div className={frameless ? 'mb-2 flex shrink-0 justify-end' : 'flex shrink-0 items-start justify-between gap-3 border-b border-clover-100 px-5 py-4 sm:px-6'}>
+          <div className={frameless ? 'sr-only' : 'min-w-0'}>
             <h2 id={titleId} className="break-words text-lg font-bold text-clover-900">{title}</h2>
             {description && <div id={descriptionId} className="mt-1.5 break-words text-sm leading-6 text-clover-700">{description}</div>}
           </div>
@@ -124,12 +125,12 @@ export function SiteDialog({
             aria-label="关闭弹窗"
             disabled={loading}
             onClick={onClose}
-            className="-mr-2 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-clover-700 transition-colors hover:bg-clover-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500 disabled:opacity-40"
+            className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-clover-700 transition-colors hover:bg-clover-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500 disabled:opacity-40', frameless ? 'border border-clover-200 bg-surface shadow-leaf' : '-mr-2 -mt-1')}
           >
             <X size={20} aria-hidden="true" />
           </button>
         </div>
-        {children && <div id={contentId} className="min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-6">{children}</div>}
+        {children && <div id={contentId} className={cn('min-h-0 overflow-y-auto overscroll-contain', !frameless && 'p-5 sm:p-6')}>{children}</div>}
         {footer && <div className="shrink-0 border-t border-clover-100 bg-clover-50/60 px-5 py-4 sm:px-6">{footer}</div>}
       </div>
     </div>,

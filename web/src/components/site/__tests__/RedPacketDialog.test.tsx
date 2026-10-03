@@ -41,6 +41,9 @@ describe('红包领取操作与恢复', () => {
     const button = await screen.findByRole('button', { name: '开红包' })
     await waitFor(() => expect(button).toBeEnabled())
     expect(post).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: activity.title })).not.toHaveClass('bg-surface')
+    expect(screen.getByRole('heading', { name: activity.title }).parentElement).toHaveClass('sr-only')
+    expect(screen.getByRole('button', { name: '关闭弹窗' })).toBeEnabled()
     fireEvent.click(button); fireEvent.click(button)
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
     expect(post).toHaveBeenCalledWith(JSON.stringify({ expected_seq: 1 }))
@@ -48,6 +51,13 @@ describe('红包领取操作与恢复', () => {
     await screen.findByText('已到账，愿好运常伴你')
     expect(screen.getAllByText('$0.000002').length).toBeGreaterThan(0)
     expect(sessionStorage.getItem(packetAttemptKey(11, 91))).toBeNull()
+    expect(screen.getByRole('dialog', { name: activity.title })).toHaveClass('bg-surface')
+    expect(screen.getByRole('heading', { name: activity.title }).parentElement).not.toHaveClass('sr-only')
+    expect(screen.getByRole('list', { name: '红包领取明细' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '领取下一份' }))
+    expect(screen.getByRole('button', { name: '开红包' })).toBeEnabled()
+    expect(screen.queryByRole('list', { name: '红包领取明细' })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: activity.title })).not.toHaveClass('bg-surface')
   })
 
   it('keeps the same operation across remounts when the network result is unknown', async () => {
