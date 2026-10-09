@@ -21,8 +21,13 @@ describe('后台操作日志的筛选与展示', () => {
   it('动作与对象都有可读文案,未知值原样透出', () => {
     expect(auditActions.map(item => item.value)).toContain('put_user_note')
     expect(auditActionLabel('manual_grant')).toBe('手动发放')
+    expect(auditActionLabel('reply_feedback')).toBe('回复留言')
+    expect(auditActionLabel('update_feedback_status')).toBe('更新反馈状态')
+    expect(auditActionLabel('hide_feedback')).toBe('隐藏留言')
+    expect(auditActionLabel('restore_feedback')).toBe('恢复留言')
     expect(auditActionLabel('mystery')).toBe('mystery')
     expect(auditTargetLabel({ target_type: 'grant', target_id: 42 })).toBe('流水 #42')
+    expect(auditTargetLabel({ target_type: 'feedback', target_id: 12 })).toBe('留言 #12')
     expect(auditTargetLabel({ target_type: 'setting', target_id: 0 })).toBe('配置')
     expect(auditTargetLabel({ target_type: 'user', target_id: 0 })).toBe('用户')
     expect(auditTargetLabel({ target_type: 'widget', target_id: 3 })).toBe('widget #3')

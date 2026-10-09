@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { LogIn, Gamepad2, ScrollText, Settings2, Sprout, Timer } from 'lucide-react'
+import { LogIn, Gamepad2, MessageSquare, ScrollText, Settings2, Sprout, Timer } from 'lucide-react'
 import { useMe, useSiteInfo } from '@/hooks/useMe'
 import { api, User } from '@/lib/api'
 import { Clover } from '@/components/Clover'
@@ -69,43 +69,44 @@ export default function Header() {
       title={label}
       aria-current={isActive(to) ? 'page' : undefined}
       className={cn(
-        'flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500',
+        'flex min-h-11 min-w-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-2 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500 sm:px-3',
         isActive(to)
           ? 'bg-clover-100 font-medium text-clover-800'
           : 'text-clover-700/70 hover:bg-clover-50 hover:text-clover-800',
       )}
     >
-      {icon}
-      <span className="hidden sm:inline">{label}</span>
+      <span className="hidden sm:inline-flex" aria-hidden="true">{icon}</span>
+      <span>{label}</span>
     </Link>
   )
 
   return (
     <header className="glass sticky top-0 z-40">
-      {/* 小屏用更窄的列间距:主题切换按钮占掉 44px 后,375px 下 gap-3 会把页头撑出横向滚动。 */}
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-1 px-4 sm:gap-3">
-        <Link to="/" className="flex items-center gap-2" aria-label="福利站首页">
+      {/* Give navigation its own row so every role keeps all five destinations. */}
+      <div className="mx-auto grid min-h-14 max-w-6xl grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 px-4 sm:gap-x-3">
+        <Link to="/" className="flex min-w-0 items-center gap-2 py-2" aria-label="福利站首页">
           <span className="animate-sway"><Clover size={30} /></span>
-          <span className="title-kai hidden text-xl sm:block">{site?.site_name ?? '福利站'}</span>
+          <span className="title-kai hidden truncate text-xl sm:block">{site?.site_name ?? '福利站'}</span>
         </Link>
 
-        <nav className="flex items-center gap-0.5 sm:gap-1" aria-label="主导航">
+        <nav className="order-3 col-span-2 flex min-h-12 items-center justify-between gap-1 border-t border-clover-100/70 py-1 sm:justify-center sm:gap-3" aria-label="主导航">
           {navLink('/', '小站', <Sprout size={16} />)}
           {navLink('/game', '小游戏', <Gamepad2 size={16} />)}
+          {navLink('/feedback', '留言', <MessageSquare size={16} />)}
           {navLink('/records', '我的记录', <ScrollText size={16} />)}
           {me?.user.is_admin && navLink('/admin', '后台', <Settings2 size={16} />)}
         </nav>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2.5 py-1">
           <ThemeToggle />
           {me?.newapi_balance != null && (
-            <span className="hidden items-center gap-1 rounded-full border border-gold-300 bg-cream px-3 py-1 text-sm font-medium text-gold-600 sm:flex">
+            <span className="hidden items-center gap-1 rounded-full border border-gold-300 bg-cream px-3 py-1 text-sm font-medium text-gold-600 lg:flex">
               <Quota value={me.newapi_balance} />
             </span>
           )}
           {!!me?.newapi_temp_balance && me.newapi_temp_balance > 0 && (
             <span
-              className="hidden items-center gap-1 rounded-full border border-gold-400 bg-gold-300/40 px-3 py-1 text-sm font-medium text-gold-600 sm:inline-flex"
+              className="hidden items-center gap-1 rounded-full border border-gold-400 bg-gold-300/40 px-3 py-1 text-sm font-medium text-gold-600 lg:inline-flex"
               title={`限时额度 · ${formatExpireIn(me.newapi_temp_expires_at)}`}
             >
               <Timer size={13} />

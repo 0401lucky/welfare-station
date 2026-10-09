@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
-import { CircleDollarSign, Clover, FileText, Gamepad2, Gift, History, LayoutDashboard, Settings2, Users, type LucideIcon } from 'lucide-react'
+import { CircleDollarSign, Clover, FileText, Gamepad2, Gift, History, LayoutDashboard, MessageSquare, Settings2, Users, type LucideIcon } from 'lucide-react'
 import { ActionLink, QueryFeedback, SiteShell } from '@/components/site'
 import { useMe } from '@/hooks/useMe'
 import { ApiError, type User } from '@/lib/api'
@@ -17,6 +17,7 @@ import GrantsTab from './GrantsTab'
 import LogsTab from './LogsTab'
 import ManualTab from './ManualTab'
 import UsersTab from './UsersTab'
+import FeedbackTab from './FeedbackTab'
 
 const sections: { id: AdminTab; label: string; Icon: LucideIcon }[] = [
   { id: 'dashboard', label: '仪表盘', Icon: LayoutDashboard },
@@ -26,6 +27,7 @@ const sections: { id: AdminTab; label: string; Icon: LucideIcon }[] = [
   { id: 'activities', label: '活动管理', Icon: Gift },
   { id: 'grants', label: '发放流水', Icon: FileText },
   { id: 'users', label: '用户管理', Icon: Users },
+  { id: 'feedback', label: '留言反馈', Icon: MessageSquare },
   { id: 'logs', label: '操作日志', Icon: History },
   { id: 'manual', label: '手动发放', Icon: CircleDollarSign },
 ]
@@ -93,6 +95,7 @@ function AdminWorkspace({ user, GamePanel }: { user: User; GamePanel: ComponentT
         {retained('activities') && <div hidden={tab !== 'activities'}><ActivitiesTab adminId={user.id} active={tab === 'activities'} /></div>}
         {tab === 'grants' && <GrantsTab adminId={user.id} />}
         {tab === 'users' && <UsersTab adminId={user.id} />}
+        {tab === 'feedback' && <FeedbackTab adminId={user.id} />}
         {tab === 'logs' && <LogsTab adminId={user.id} />}
         {retained('manual') && <div hidden={tab !== 'manual'}><ManualTab adminId={user.id} active={tab === 'manual'} /></div>}
       </section>

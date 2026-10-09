@@ -336,6 +336,30 @@ export interface Page<T> {
   items: T[]
 }
 
+export type FeedbackCategory = 'message' | 'praise' | 'issue' | 'suggestion'
+export type FeedbackStatus = 'pending' | 'in_progress' | 'resolved'
+
+/** Public feedback responses deliberately omit account identifiers and roles. */
+export interface FeedbackAuthor { name: string; avatar_url: string }
+
+export interface FeedbackItem {
+  id: number
+  author: FeedbackAuthor
+  category: FeedbackCategory
+  content: string
+  is_private: boolean
+  is_hidden: boolean
+  status: FeedbackStatus | null
+  reply_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface AdminFeedbackItem extends FeedbackItem { user_id: number; linux_do_name: string }
+export interface FeedbackReply { id: number; author: FeedbackAuthor; content: string; created_at: string }
+export interface FeedbackDetail { message: FeedbackItem; replies: Page<FeedbackReply> }
+export interface AdminFeedbackDetail { message: AdminFeedbackItem; replies: Page<FeedbackReply> }
+
 export interface Dashboard {
   /** 配置时区下的今天,以及该时区本身 —— 所有 today_* 字段都以它为日界。 */
   today: string

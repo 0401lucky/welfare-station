@@ -66,6 +66,11 @@ func TestRecordAuditTruncatesDetail(t *testing.T) {
 
 // TestIsAuditAction 验证动作清单包含全部常量且拒绝未知值。
 func TestIsAuditAction(t *testing.T) {
+	for _, action := range []string{"reply_feedback", "update_feedback_status", "hide_feedback", "restore_feedback"} {
+		if !IsAuditAction(action) {
+			t.Errorf("feedback action %s is missing from the audit allowlist", action)
+		}
+	}
 	for _, a := range AuditActions {
 		if !IsAuditAction(a) {
 			t.Errorf("%s 应被识别", a)

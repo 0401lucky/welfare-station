@@ -41,6 +41,19 @@ func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
 	// ---- 好运榜:匿名可看,登录用户多一个「我的名次」----
 	api.GET("/leaderboard", app.Auth.OptionalUser(), app.Leaderboard)
 
+	// Feedback responses, including auth denials, must never be cached.
+	feedback := api.Group("", controller.FeedbackNoStore)
+	feedback.GET("/feedback", app.ListFeedback)
+	feedback.GET("/feedback/:id", app.Auth.OptionalUser(), app.FeedbackDetail)
+	feedback.GET("/user/feedback", app.Auth.RequireUser(), app.MyFeedback)
+	feedback.POST("/feedback", app.Auth.RequireUser(), middleware.RateLimitFeedback(), app.CreateFeedback)
+	feedbackAdmin := feedback.Group("/admin/feedback", app.Auth.RequireAdmin())
+	feedbackAdmin.GET("", app.AdminListFeedback)
+	feedbackAdmin.GET("/:id", app.AdminFeedbackDetail)
+	feedbackAdmin.POST("/:id/replies", app.AdminReplyFeedback)
+	feedbackAdmin.PUT("/:id/status", app.AdminUpdateFeedbackStatus)
+	feedbackAdmin.PUT("/:id/moderation", app.AdminModerateFeedback)
+
 	// ---- M7: user grants (my records) ----
 	user.GET("/user/grants", app.GetMyGrants)
 

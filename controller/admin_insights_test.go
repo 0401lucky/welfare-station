@@ -135,6 +135,9 @@ func TestAdminWritesProduceAuditLogs(t *testing.T) {
 		t.Fatalf("校验失败不应记日志: %d", len(rows))
 	}
 
+	// Feedback writes use the same audit contract without copying private bodies.
+	assertFeedbackAdminAudits(t, app, admin, normal)
+
 	// 6. 日志接口:总数、分页、筛选、操作者投影、未知动作。
 	all := auditRows(t, app, "")
 	type logPage struct {

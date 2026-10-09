@@ -1,6 +1,6 @@
 import type { AdminActivity, GrantRecord } from '@/lib/api'
 
-export const adminTabs = ['dashboard', 'config', 'game', 'draw', 'activities', 'grants', 'users', 'logs', 'manual'] as const
+export const adminTabs = ['dashboard', 'config', 'game', 'draw', 'activities', 'grants', 'users', 'feedback', 'logs', 'manual'] as const
 export type AdminTab = typeof adminTabs[number]
 export const grantSources = [
   { value: 'checkin', label: '签到' }, { value: 'draw', label: '抽奖' },

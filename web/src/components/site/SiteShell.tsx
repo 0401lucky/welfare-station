@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type HTMLAttributes, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ExternalLink, Gamepad2, LogIn, LogOut, ScrollText, Settings2, Sprout, Timer, Wallet } from 'lucide-react'
+import { ChevronDown, ExternalLink, Gamepad2, LogIn, LogOut, MessageSquare, ScrollText, Settings2, Sprout, Timer, Wallet } from 'lucide-react'
 import { Clover } from '@/components/Clover'
 import ThemeToggle from '@/components/ThemeToggle'
 import Quota from '@/components/Quota'
@@ -39,6 +39,7 @@ function SiteHeader({ width }: { width: SiteWidth }) {
   const links = [
     { to: '/', label: '小站', Icon: Sprout },
     { to: '/game', label: '小游戏', Icon: Gamepad2 },
+    { to: '/feedback', label: '留言', Icon: MessageSquare },
     { to: '/records', label: '我的记录', Icon: ScrollText },
     ...(me?.user.is_admin ? [{ to: '/admin', label: '后台', Icon: Settings2 }] : []),
   ]
@@ -87,15 +88,15 @@ function SiteHeader({ width }: { width: SiteWidth }) {
   return (
     <header className="glass sticky top-0 z-40">
       <a href="#site-main" className="sr-only z-50 rounded-full bg-surface px-4 py-3 text-clover-900 focus:not-sr-only focus:absolute focus:left-4 focus:top-3">跳到页面内容</a>
-      <div className={cn('mx-auto grid min-h-16 grid-cols-[1fr_auto] items-center gap-x-3 px-4 lg:grid-cols-[1fr_auto_1fr] lg:gap-x-6', width === 'admin' ? 'max-w-[1440px]' : 'max-w-6xl')}>
-        <Link to="/" className="flex w-fit min-w-0 items-center gap-2 rounded-lg py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500" aria-label={`${site?.site_name || '福利站'}首页`}>
+      <div className={cn('mx-auto grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-4 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:gap-x-6', width === 'admin' ? 'max-w-[1440px]' : 'max-w-6xl')}>
+        <Link to="/" className="flex w-fit min-w-0 max-w-full items-center gap-2 rounded-lg py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500 [&>svg]:shrink-0" aria-label={`${site?.site_name || '福利站'}首页`}>
           <Clover size={32} stem={false} />
           <span className="title-kai max-w-[10rem] truncate text-2xl">{site?.site_name || '福利站'}</span>
         </Link>
         <nav aria-label="主导航" className="order-3 col-span-2 flex min-h-12 items-center justify-between gap-1 border-t border-clover-100/70 py-1 lg:order-none lg:col-span-1 lg:justify-center lg:border-0">
           {links.map(({ to, label, Icon }) => {
             const active = location.pathname === to || (to !== '/' && location.pathname.startsWith(`${to}/`))
-            return <Link key={to} to={to} aria-current={active ? 'page' : undefined} className={cn('flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500 sm:px-4', active ? 'bg-clover-100/90 font-semibold text-clover-900' : 'text-clover-700 hover:bg-clover-50')}><Icon size={16} aria-hidden="true" />{label}</Link>
+            return <Link key={to} to={to} aria-current={active ? 'page' : undefined} className={cn('flex min-h-11 min-w-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clover-500 sm:px-4', active ? 'bg-clover-100/90 font-semibold text-clover-900' : 'text-clover-700 hover:bg-clover-50')}><Icon size={16} aria-hidden="true" className="hidden shrink-0 sm:block" />{label}</Link>
           })}
         </nav>
         <div className="flex min-w-0 items-center justify-end gap-2">

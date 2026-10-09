@@ -2,8 +2,14 @@ package middleware
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
+
+	"welfare/model"
+
+	"github.com/gin-gonic/gin"
 )
 
 // size 返回桶里当前跟踪的 key 数,仅测试用。
@@ -59,5 +65,89 @@ func TestBucketSweepKeepsRecentKeys(t *testing.T) {
 	}
 	if got := b.size(); got != 1 {
 		t.Fatalf("size = %d, want 1", got)
+	}
+}
+
+func TestFeedbackLimiterIsolationAndRefill(t *testing.T) {
+	oldFeedback, oldUser, oldIP := FeedbackLimiter, PerUserLimiter, IPLimiter
+	oldGame, oldCheckpoint := GameLimiter, GameCheckpointLimiter
+	FeedbackLimiter = newBucket(oldFeedback.rate, oldFeedback.capacity)
+	PerUserLimiter = newBucket(oldUser.rate, oldUser.capacity)
+	IPLimiter = newBucket(oldIP.rate, oldIP.capacity)
+	GameLimiter = newBucket(oldGame.rate, oldGame.capacity)
+	GameCheckpointLimiter = newBucket(oldCheckpoint.rate, oldCheckpoint.capacity)
+	t.Cleanup(func() {
+		FeedbackLimiter, PerUserLimiter, IPLimiter = oldFeedback, oldUser, oldIP
+		GameLimiter, GameCheckpointLimiter = oldGame, oldCheckpoint
+	})
+	if FeedbackLimiter.rate != 3.0/60.0 || FeedbackLimiter.capacity != 3 {
+		t.Fatalf("unexpected feedback limit: rate=%v capacity=%v", FeedbackLimiter.rate, FeedbackLimiter.capacity)
+	}
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		id := int64(1)
+		if c.GetHeader("X-Test-User") == "other" {
+			id = 2
+		}
+		c.Set(ContextUserKey, &model.User{ID: id, Status: 1})
+	})
+	finish := func(c *gin.Context) { c.Status(http.StatusNoContent) }
+	r.POST("/feedback", RateLimitFeedback(), finish)
+	r.POST("/reward", RateLimitUser(), finish)
+	r.POST("/game", RateLimitGame(), finish)
+	r.POST("/checkpoint", RateLimitGameCheckpoint(), finish)
+	r.POST("/oauth", RateLimitIP(), finish)
+	request := func(path, user string) int {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("X-Test-User", user)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for i := 0; i < 3; i++ {
+		if code := request("/feedback", ""); code != http.StatusNoContent {
+			t.Fatalf("feedback request %d = %d", i+1, code)
+		}
+	}
+	if code := request("/feedback", ""); code != http.StatusTooManyRequests {
+		t.Fatalf("fourth feedback request = %d, want 429", code)
+	}
+	if code := request("/feedback", "other"); code != http.StatusNoContent {
+		t.Fatalf("a different user's feedback capacity was consumed: %d", code)
+	}
+	for _, test := range []struct {
+		path     string
+		capacity int
+	}{{"/reward", 10}, {"/game", 20}, {"/checkpoint", 60}, {"/oauth", 20}} {
+		for i := 0; i < test.capacity; i++ {
+			if code := request(test.path, ""); code != http.StatusNoContent {
+				t.Fatalf("%s request %d = %d: feedback affected an unrelated bucket", test.path, i+1, code)
+			}
+		}
+	}
+	// Advance just this key's refill reference instead of sleeping in a test.
+	FeedbackLimiter.mu.Lock()
+	FeedbackLimiter.lastSeen["u1"] = time.Now().Add(-21 * time.Second)
+	FeedbackLimiter.mu.Unlock()
+	if code := request("/feedback", ""); code != http.StatusNoContent {
+		t.Fatalf("a refilled feedback token was rejected: %d", code)
+	}
+}
+
+func TestFeedbackLimiterSweeperRegistration(t *testing.T) {
+	now := time.Now()
+	key := "feedback-sweeper-test"
+	FeedbackLimiter.Allow(key)
+	FeedbackLimiter.mu.Lock()
+	FeedbackLimiter.lastSeen[key] = now.Add(-2 * time.Hour)
+	FeedbackLimiter.mu.Unlock()
+	sweepLimiters(now)
+	FeedbackLimiter.mu.Lock()
+	defer FeedbackLimiter.mu.Unlock()
+	if _, ok := FeedbackLimiter.tokens[key]; ok {
+		t.Fatal("registered sweeper must remove feedback tokens")
+	}
+	if _, ok := FeedbackLimiter.lastSeen[key]; ok {
+		t.Fatal("registered sweeper must remove feedback lastSeen")
 	}
 }

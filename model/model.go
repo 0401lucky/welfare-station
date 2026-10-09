@@ -221,5 +221,7 @@ func AllModels() []any {
 		&Draw{},
 		&DailyBudget{},
 		&AdminLog{},
+		&Feedback{},
+		&FeedbackReply{},
 	}
 }

@@ -12,19 +12,23 @@ import (
 
 // 审计动作常量。前端下拉与文案按这份清单对齐,新增写接口时先在这里登记。
 const (
-	AuditManualGrant      = "manual_grant"
-	AuditRetryGrant       = "retry_grant"
-	AuditBanUser          = "ban_user"
-	AuditUnbanUser        = "unban_user"
-	AuditCreateActivity   = "create_activity"
-	AuditUpdateActivity   = "update_activity"
-	AuditDeleteActivity   = "delete_activity"
-	AuditPutCheckinConfig = "put_checkin_config"
-	AuditPutGameConfig    = "put_game_config"
-	AuditPutDrawConfig    = "put_draw_config"
-	AuditPutGrantConfig   = "put_grant_config"
-	AuditPutSiteNotice    = "put_site_notice"
-	AuditPutUserNote      = "put_user_note"
+	AuditManualGrant          = "manual_grant"
+	AuditRetryGrant           = "retry_grant"
+	AuditBanUser              = "ban_user"
+	AuditUnbanUser            = "unban_user"
+	AuditCreateActivity       = "create_activity"
+	AuditUpdateActivity       = "update_activity"
+	AuditDeleteActivity       = "delete_activity"
+	AuditPutCheckinConfig     = "put_checkin_config"
+	AuditPutGameConfig        = "put_game_config"
+	AuditPutDrawConfig        = "put_draw_config"
+	AuditPutGrantConfig       = "put_grant_config"
+	AuditPutSiteNotice        = "put_site_notice"
+	AuditPutUserNote          = "put_user_note"
+	AuditReplyFeedback        = "reply_feedback"
+	AuditUpdateFeedbackStatus = "update_feedback_status"
+	AuditHideFeedback         = "hide_feedback"
+	AuditRestoreFeedback      = "restore_feedback"
 )
 
 // AuditActions 是全部合法动作,日志筛选只认这份清单里的值。
@@ -33,6 +37,7 @@ var AuditActions = []string{
 	AuditCreateActivity, AuditUpdateActivity, AuditDeleteActivity,
 	AuditPutCheckinConfig, AuditPutGameConfig, AuditPutDrawConfig, AuditPutGrantConfig,
 	AuditPutSiteNotice, AuditPutUserNote,
+	AuditReplyFeedback, AuditUpdateFeedbackStatus, AuditHideFeedback, AuditRestoreFeedback,
 }
 
 // IsAuditAction 判断动作名是否在清单内。
@@ -51,6 +56,7 @@ const (
 	AuditTargetUser     = "user"
 	AuditTargetActivity = "activity"
 	AuditTargetSetting  = "setting"
+	AuditTargetFeedback = "feedback"
 )
 
 // auditDetailMaxRunes 是 detail 的长度上限,按字符数截断,避免把多字节字符切成半个。

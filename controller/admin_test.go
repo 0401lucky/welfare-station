@@ -48,6 +48,12 @@ func adminRoutes(app *App) *gin.Engine {
 	admin.GET("/admin/grant-config", app.AdminGetGrantConfig)
 	admin.PUT("/admin/grant-config", app.AdminPutGrantConfig)
 	admin.GET("/admin/budgets", app.AdminBudgets)
+	feedback := api.Group("/admin/feedback", FeedbackNoStore, app.Auth.RequireAdmin())
+	feedback.GET("", app.AdminListFeedback)
+	feedback.GET("/:id", app.AdminFeedbackDetail)
+	feedback.POST("/:id/replies", app.AdminReplyFeedback)
+	feedback.PUT("/:id/status", app.AdminUpdateFeedbackStatus)
+	feedback.PUT("/:id/moderation", app.AdminModerateFeedback)
 	return r
 }
 
@@ -96,6 +102,11 @@ func TestAdminRoutesRejectNonAdmin(t *testing.T) {
 		{http.MethodGet, "/api/admin/grant-config"},
 		{http.MethodPut, "/api/admin/grant-config"},
 		{http.MethodGet, "/api/admin/budgets"},
+		{http.MethodGet, "/api/admin/feedback"},
+		{http.MethodGet, "/api/admin/feedback/1"},
+		{http.MethodPost, "/api/admin/feedback/1/replies"},
+		{http.MethodPut, "/api/admin/feedback/1/status"},
+		{http.MethodPut, "/api/admin/feedback/1/moderation"},
 	}
 	for _, rt := range routes {
 		req := httptest.NewRequest(rt.method, rt.path, nil)

@@ -11,6 +11,7 @@ import { Toaster } from '@/components/Toast'
 import { Spinner } from '@/components/ui'
 
 const AdminPage = lazy(() => import('@/pages/AdminPage'))
+const FeedbackPage = lazy(() => import('@/pages/FeedbackPage'))
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/bind" element={<BindPage />} />
           <Route path="/records" element={<RecordsPage />} />
+          <Route path="/feedback" element={<FeedbackPage />} />
           <Route path="/game" element={<ArcadePage />} />
           <Route path="/game/2048" element={<GamePage />} />
           <Route path="/game/watermelon" element={<WatermelonPage />} />

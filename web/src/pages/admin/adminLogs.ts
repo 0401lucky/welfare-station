@@ -18,6 +18,10 @@ export const auditActions = [
   { value: 'put_grant_config', label: '修改发放上限' },
   { value: 'put_site_notice', label: '修改站点公告' },
   { value: 'put_user_note', label: '修改用户备注' },
+  { value: 'reply_feedback', label: '回复留言' },
+  { value: 'update_feedback_status', label: '更新反馈状态' },
+  { value: 'hide_feedback', label: '隐藏留言' },
+  { value: 'restore_feedback', label: '恢复留言' },
 ] as const
 
 export function auditActionLabel(action: string): string {
@@ -72,7 +76,7 @@ export function formatAuditDetail(detail: string): string {
   }
 }
 
-const targetNames: Record<string, string> = { grant: '流水', user: '用户', activity: '活动', setting: '配置' }
+const targetNames: Record<string, string> = { grant: '流水', user: '用户', activity: '活动', setting: '配置', feedback: '留言' }
 
 export function auditTargetLabel(log: Pick<AdminLog, 'target_type' | 'target_id'>): string {
   const name = targetNames[log.target_type] ?? log.target_type
