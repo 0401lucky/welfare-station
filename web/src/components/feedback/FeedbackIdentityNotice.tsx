@@ -1,7 +1,7 @@
 import { ActionLink, QueryFeedback } from '@/components/site'
 import type { FeedbackIdentity } from './useFeedbackIdentity'
 
-export function FeedbackIdentityNotice({ identity, purpose = '登录后即可留言，也能在这里查看自己的留言和站主回复。' }: {
+export function FeedbackIdentityNotice({ identity, purpose = '登录后即可留言、发图片和参与讨论，也能查看自己的留言与回复。' }: {
   identity: FeedbackIdentity
   purpose?: string
 }) {

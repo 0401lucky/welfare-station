@@ -83,6 +83,14 @@ func feedbackError(c *gin.Context, err error, fallback string) {
 		common.Unauthorized(c, service.ErrFeedbackLoginRequired.Error())
 	case errors.Is(err, service.ErrFeedbackAdminRequired):
 		common.Forbidden(c, service.ErrFeedbackAdminRequired.Error())
+	case errors.Is(err, service.ErrFeedbackImageLimit), errors.Is(err, service.ErrFeedbackRequestLimit):
+		common.Fail(c, http.StatusRequestEntityTooLarge, err.Error())
+	case errors.Is(err, service.ErrFeedbackImageFormat):
+		common.Fail(c, http.StatusUnsupportedMediaType, service.ErrFeedbackImageFormat.Error())
+	case errors.Is(err, service.ErrFeedbackImageStore):
+		common.Fail(c, http.StatusServiceUnavailable, service.ErrFeedbackImageStore.Error())
+	case errors.Is(err, service.ErrFeedbackSubmissionConflict):
+		common.Fail(c, http.StatusConflict, service.ErrFeedbackSubmissionConflict.Error())
 	case errors.As(err, &validation):
 		common.BadRequest(c, validation.Error())
 	default:

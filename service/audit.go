@@ -29,6 +29,8 @@ const (
 	AuditUpdateFeedbackStatus = "update_feedback_status"
 	AuditHideFeedback         = "hide_feedback"
 	AuditRestoreFeedback      = "restore_feedback"
+	AuditHideFeedbackReply    = "hide_feedback_reply"
+	AuditRestoreFeedbackReply = "restore_feedback_reply"
 )
 
 // AuditActions 是全部合法动作,日志筛选只认这份清单里的值。
@@ -38,6 +40,7 @@ var AuditActions = []string{
 	AuditPutCheckinConfig, AuditPutGameConfig, AuditPutDrawConfig, AuditPutGrantConfig,
 	AuditPutSiteNotice, AuditPutUserNote,
 	AuditReplyFeedback, AuditUpdateFeedbackStatus, AuditHideFeedback, AuditRestoreFeedback,
+	AuditHideFeedbackReply, AuditRestoreFeedbackReply,
 }
 
 // IsAuditAction 判断动作名是否在清单内。
@@ -52,11 +55,12 @@ func IsAuditAction(action string) bool {
 
 // 审计对象类型(w_admin_logs.target_type)。
 const (
-	AuditTargetGrant    = "grant"
-	AuditTargetUser     = "user"
-	AuditTargetActivity = "activity"
-	AuditTargetSetting  = "setting"
-	AuditTargetFeedback = "feedback"
+	AuditTargetGrant         = "grant"
+	AuditTargetUser          = "user"
+	AuditTargetActivity      = "activity"
+	AuditTargetSetting       = "setting"
+	AuditTargetFeedback      = "feedback"
+	AuditTargetFeedbackReply = "feedback_reply"
 )
 
 // auditDetailMaxRunes 是 detail 的长度上限,按字符数截断,避免把多字节字符切成半个。

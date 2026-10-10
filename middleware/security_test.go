@@ -41,7 +41,9 @@ func TestSecurityHeadersFixedSet(t *testing.T) {
 	csp := h.Get("Content-Security-Policy-Report-Only")
 	for _, directive := range []string{
 		"default-src 'self'",
-		"img-src 'self' data: https:",
+		"img-src 'self' data: blob: https:;",
+		"script-src 'self';",
+		"connect-src 'self';",
 		"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
 		"font-src 'self' data: https://fonts.gstatic.com",
 		"frame-ancestors 'self'",

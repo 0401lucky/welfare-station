@@ -31,7 +31,7 @@ type feedbackRouterFixture struct {
 	disabled, disabledAdmin model.User
 }
 
-func newFeedbackRouterFixture(t *testing.T) *feedbackRouterFixture {
+func newFeedbackRouterFixture(t *testing.T, stores ...*service.FeedbackImageStore) *feedbackRouterFixture {
 	t.Helper()
 	seq := atomic.AddInt64(&feedbackRouterSequence, 10)
 	db, err := model.Open("sqlite", fmt.Sprintf("file:feedback-router-%d?mode=memory&cache=shared", seq))
@@ -66,7 +66,7 @@ func newFeedbackRouterFixture(t *testing.T) *feedbackRouterFixture {
 			t.Fatal(err)
 		}
 	}
-	Register(f.r, cfg, db)
+	Register(f.r, cfg, db, stores...)
 	return f
 }
 
@@ -141,7 +141,7 @@ func TestFeedbackRouterPrivacyMatrix(t *testing.T) {
 				t.Fatal(err)
 			}
 			for i := 0; i < 2; i++ {
-				reply := model.FeedbackReply{FeedbackID: entry.ID, AdminUserID: f.admin.ID, Content: fmt.Sprintf("reply-%d-for-%d", i, entry.ID)}
+				reply := model.FeedbackReply{FeedbackID: entry.ID, UserID: f.admin.ID, Content: fmt.Sprintf("reply-%d-for-%d", i, entry.ID)}
 				if err := f.db.Create(&reply).Error; err != nil {
 					t.Fatal(err)
 				}

@@ -201,7 +201,7 @@ func projectFeedbackItem(row model.Feedback, user model.User, replyCount int64) 
 	}
 	return FeedbackItem{
 		ID: row.ID, Author: projectFeedbackAuthor(user), Category: row.Category,
-		Content: row.Content, IsPrivate: row.IsPrivate, IsHidden: row.IsHidden,
+		Content: legacyFeedbackContent(row.Content), IsPrivate: row.IsPrivate, IsHidden: row.IsHidden,
 		Status: status, ReplyCount: replyCount, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 }
@@ -214,7 +214,14 @@ func projectAdminFeedbackItem(row model.Feedback, user model.User, replyCount in
 }
 
 func projectFeedbackReply(row model.FeedbackReply, user model.User) FeedbackReply {
-	return FeedbackReply{ID: row.ID, Author: projectFeedbackAuthor(user), Content: row.Content, CreatedAt: row.CreatedAt}
+	return FeedbackReply{ID: row.ID, Author: projectFeedbackAuthor(user), Content: legacyFeedbackContent(row.Content), CreatedAt: row.CreatedAt}
+}
+
+func legacyFeedbackContent(content string) string {
+	if content == "" {
+		return "图片留言，请刷新页面查看"
+	}
+	return content
 }
 
 // loadFeedbackUsers reads only the fields allowed in feedback projections.
@@ -275,7 +282,11 @@ func queryFeedbackRows(db, query *gorm.DB, filters FeedbackFilters) ([]model.Fee
 	return rows, total, nil
 }
 
-func feedbackProjectionData(db *gorm.DB, rows []model.Feedback) (map[int64]model.User, map[int64]int64, error) {
+func feedbackProjectionData(db *gorm.DB, rows []model.Feedback, viewers ...*model.User) (map[int64]model.User, map[int64]int64, error) {
+	var viewer *model.User
+	if len(viewers) > 0 {
+		viewer = viewers[0]
+	}
 	ids := make([]int64, 0, len(rows))
 	userIDs := make([]int64, 0, len(rows))
 	for _, row := range rows {
@@ -292,7 +303,7 @@ func feedbackProjectionData(db *gorm.DB, rows []model.Feedback) (map[int64]model
 			FeedbackID int64
 			Total      int64
 		}
-		if err := db.Model(&model.FeedbackReply{}).Select("feedback_id, COUNT(*) AS total").
+		if err := feedbackReplyScope(db.Model(&model.FeedbackReply{}), viewer).Where("author_role = ?", FeedbackRoleOwner).Select("feedback_id, COUNT(*) AS total").
 			Where("feedback_id IN ?", ids).Group("feedback_id").Scan(&grouped).Error; err != nil {
 			return nil, nil, err
 		}
@@ -303,13 +314,13 @@ func feedbackProjectionData(db *gorm.DB, rows []model.Feedback) (map[int64]model
 	return users, counts, nil
 }
 
-func listFeedback(db, query *gorm.DB, filters FeedbackFilters) (FeedbackPage[FeedbackItem], error) {
+func listFeedback(db, query *gorm.DB, filters FeedbackFilters, viewers ...*model.User) (FeedbackPage[FeedbackItem], error) {
 	out := FeedbackPage[FeedbackItem]{Items: []FeedbackItem{}, Page: filters.Page, PageSize: filters.PageSize}
 	rows, total, err := queryFeedbackRows(db, query, filters)
 	if err != nil {
 		return out, err
 	}
-	users, counts, err := feedbackProjectionData(db, rows)
+	users, counts, err := feedbackProjectionData(db, rows, viewers...)
 	if err != nil {
 		return out, err
 	}
@@ -337,7 +348,7 @@ func ListMyFeedback(db *gorm.DB, user *model.User, filters FeedbackFilters) (Fee
 	if err != nil {
 		return FeedbackPage[FeedbackItem]{}, err
 	}
-	return listFeedback(db, db.Model(&model.Feedback{}).Where("user_id = ?", user.ID), filters)
+	return listFeedback(db, db.Model(&model.Feedback{}).Where("user_id = ?", user.ID), filters, user)
 }
 
 func ListAdminFeedback(db *gorm.DB, admin *model.User, filters FeedbackFilters) (FeedbackPage[AdminFeedbackItem], error) {
@@ -353,7 +364,7 @@ func ListAdminFeedback(db *gorm.DB, admin *model.User, filters FeedbackFilters) 
 	if err != nil {
 		return out, err
 	}
-	users, counts, err := feedbackProjectionData(db, rows)
+	users, counts, err := feedbackProjectionData(db, rows, admin)
 	if err != nil {
 		return out, err
 	}
@@ -366,12 +377,7 @@ func ListAdminFeedback(db *gorm.DB, admin *model.User, filters FeedbackFilters) 
 
 func findFeedback(db *gorm.DB, id int64, viewer *model.User) (model.Feedback, error) {
 	var row model.Feedback
-	query := db.Where("id = ?", id)
-	if !activeFeedbackUser(viewer) {
-		query = query.Where("is_private = ? AND is_hidden = ?", false, false)
-	} else if !viewer.IsAdmin {
-		query = query.Where("(user_id = ? OR (is_private = ? AND is_hidden = ?))", viewer.ID, false, false)
-	}
+	query := feedbackParentScope(db.Where("id = ?", id), viewer)
 	err := query.First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		err = ErrFeedbackNotFound
@@ -395,7 +401,7 @@ func readFeedbackThread(db *gorm.DB, id int64, viewer *model.User, page, pageSiz
 			return err
 		}
 		out.row = row
-		query := tx.Model(&model.FeedbackReply{}).Where("feedback_id = ?", row.ID)
+		query := feedbackReplyScope(tx.Model(&model.FeedbackReply{}), viewer).Where("feedback_id = ? AND author_role = ?", row.ID, FeedbackRoleOwner)
 		if err := query.Count(&out.replies.Total).Error; err != nil {
 			return err
 		}
@@ -405,7 +411,7 @@ func readFeedbackThread(db *gorm.DB, id int64, viewer *model.User, page, pageSiz
 		}
 		userIDs := []int64{row.UserID}
 		for _, reply := range replies {
-			userIDs = append(userIDs, reply.AdminUserID)
+			userIDs = append(userIDs, reply.UserID)
 		}
 		users, err := loadFeedbackUsers(tx, userIDs)
 		if err != nil {
@@ -413,7 +419,7 @@ func readFeedbackThread(db *gorm.DB, id int64, viewer *model.User, page, pageSiz
 		}
 		out.user = users[row.UserID]
 		for _, reply := range replies {
-			out.replies.Items = append(out.replies.Items, projectFeedbackReply(reply, users[reply.AdminUserID]))
+			out.replies.Items = append(out.replies.Items, projectFeedbackReply(reply, users[reply.UserID]))
 		}
 		return nil
 	})
@@ -454,7 +460,12 @@ func CreateFeedback(db *gorm.DB, user *model.User, input CreateFeedbackInput) (*
 	if FeedbackHasStatus(row.Category) {
 		row.Status = FeedbackStatusPending
 	}
-	if err := db.Create(&row).Error; err != nil {
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if _, err := liveFeedbackUser(tx, user, true, false, true); err != nil {
+			return err
+		}
+		return tx.Create(&row).Error
+	}); err != nil {
 		return nil, err
 	}
 	item := projectFeedbackItem(row, *user, 0)
@@ -469,9 +480,12 @@ func AppendFeedbackReply(db *gorm.DB, id int64, admin *model.User, input string)
 	if err != nil {
 		return nil, err
 	}
-	row := model.FeedbackReply{FeedbackID: id, AdminUserID: admin.ID, Content: content}
+	row := model.FeedbackReply{FeedbackID: id, UserID: admin.ID, AuthorRole: FeedbackRoleOwner, Content: content}
 	err = db.Transaction(func(tx *gorm.DB) error {
 		if _, err := findFeedback(tx.Clauses(clause.Locking{Strength: "UPDATE"}), id, admin); err != nil {
+			return err
+		}
+		if _, err := liveFeedbackUser(tx, admin, true, true, true); err != nil {
 			return err
 		}
 		if err := tx.Create(&row).Error; err != nil {
@@ -504,6 +518,9 @@ func changeFeedback(db *gorm.DB, id int64, admin *model.User, update func(model.
 		if err != nil {
 			return err
 		}
+		if _, err := liveFeedbackUser(tx, admin, true, true, true); err != nil {
+			return err
+		}
 		out.PreviousStatus, out.PreviousHidden = row.Status, row.IsHidden
 		updates, err := update(row)
 		if err != nil {
@@ -515,7 +532,7 @@ func changeFeedback(db *gorm.DB, id int64, admin *model.User, update func(model.
 			}
 			out.Changed = true
 		}
-		users, counts, err := feedbackProjectionData(tx, []model.Feedback{row})
+		users, counts, err := feedbackProjectionData(tx, []model.Feedback{row}, admin)
 		if err != nil {
 			return err
 		}

@@ -14,7 +14,7 @@ func TestFeedbackMigrationPreservesDataAndIndexes(t *testing.T) {
 	if err := db.Create(&entry).Error; err != nil {
 		t.Fatal(err)
 	}
-	reply := FeedbackReply{FeedbackID: entry.ID, AdminUserID: 7, Content: "保留回复"}
+	reply := FeedbackReply{FeedbackID: entry.ID, UserID: 7, Content: "保留回复"}
 	if err := db.Create(&reply).Error; err != nil {
 		t.Fatal(err)
 	}

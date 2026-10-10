@@ -69,6 +69,9 @@ func TestBucketSweepKeepsRecentKeys(t *testing.T) {
 }
 
 func TestFeedbackLimiterIsolationAndRefill(t *testing.T) {
+	oldReply := FeedbackReplyLimiter
+	FeedbackReplyLimiter = newBucket(oldReply.rate, oldReply.capacity)
+	t.Cleanup(func() { FeedbackReplyLimiter = oldReply })
 	oldFeedback, oldUser, oldIP := FeedbackLimiter, PerUserLimiter, IPLimiter
 	oldGame, oldCheckpoint := GameLimiter, GameCheckpointLimiter
 	FeedbackLimiter = newBucket(oldFeedback.rate, oldFeedback.capacity)
@@ -93,6 +96,7 @@ func TestFeedbackLimiterIsolationAndRefill(t *testing.T) {
 	})
 	finish := func(c *gin.Context) { c.Status(http.StatusNoContent) }
 	r.POST("/feedback", RateLimitFeedback(), finish)
+	r.POST("/reply", RateLimitFeedbackReply(), finish)
 	r.POST("/reward", RateLimitUser(), finish)
 	r.POST("/game", RateLimitGame(), finish)
 	r.POST("/checkpoint", RateLimitGameCheckpoint(), finish)
@@ -118,7 +122,7 @@ func TestFeedbackLimiterIsolationAndRefill(t *testing.T) {
 	for _, test := range []struct {
 		path     string
 		capacity int
-	}{{"/reward", 10}, {"/game", 20}, {"/checkpoint", 60}, {"/oauth", 20}} {
+	}{{"/reply", 10}, {"/reward", 10}, {"/game", 20}, {"/checkpoint", 60}, {"/oauth", 20}} {
 		for i := 0; i < test.capacity; i++ {
 			if code := request(test.path, ""); code != http.StatusNoContent {
 				t.Fatalf("%s request %d = %d: feedback affected an unrelated bucket", test.path, i+1, code)
@@ -141,7 +145,18 @@ func TestFeedbackLimiterSweeperRegistration(t *testing.T) {
 	FeedbackLimiter.mu.Lock()
 	FeedbackLimiter.lastSeen[key] = now.Add(-2 * time.Hour)
 	FeedbackLimiter.mu.Unlock()
+	FeedbackReplyLimiter.Allow(key)
+	FeedbackReplyLimiter.mu.Lock()
+	FeedbackReplyLimiter.lastSeen[key] = now.Add(-2 * time.Hour)
+	FeedbackReplyLimiter.mu.Unlock()
 	sweepLimiters(now)
+	FeedbackReplyLimiter.mu.Lock()
+	_, replyTokens := FeedbackReplyLimiter.tokens[key]
+	_, replySeen := FeedbackReplyLimiter.lastSeen[key]
+	FeedbackReplyLimiter.mu.Unlock()
+	if replyTokens || replySeen {
+		t.Fatal("registered sweeper must remove reply tokens and timestamps")
+	}
 	FeedbackLimiter.mu.Lock()
 	defer FeedbackLimiter.mu.Unlock()
 	if _, ok := FeedbackLimiter.tokens[key]; ok {

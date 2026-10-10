@@ -92,7 +92,7 @@ func StartSweeper(ctx context.Context) {
 }
 
 func sweepLimiters(now time.Time) {
-	for _, b := range []*bucket{PerUserLimiter, IPLimiter, GameLimiter, GameCheckpointLimiter, FeedbackLimiter} {
+	for _, b := range []*bucket{PerUserLimiter, IPLimiter, GameLimiter, GameCheckpointLimiter, FeedbackLimiter, FeedbackReplyLimiter} {
 		b.sweep(now, sweepMaxIdle)
 	}
 }
@@ -119,6 +119,10 @@ var GameCheckpointLimiter = newBucket(120.0/60.0, 60)
 // FeedbackLimiter allows three messages per minute per user, with a burst of
 // three. Posting must not consume check-in, OAuth, or game capacity.
 var FeedbackLimiter = newBucket(3.0/60.0, 3)
+
+// Member and owner reply routes share this bucket, independently of posting,
+// rewards and games. Queries and moderation never consume its tokens.
+var FeedbackReplyLimiter = newBucket(10.0/60.0, 10)
 
 // rateLimitBy 按给定的桶做每用户限流,是下面包装函数的共同实现。
 func rateLimitBy(b *bucket) gin.HandlerFunc {
@@ -151,6 +155,8 @@ func RateLimitUser() gin.HandlerFunc { return rateLimitBy(PerUserLimiter) }
 
 // RateLimitFeedback applies only to creating a feedback entry after RequireUser.
 func RateLimitFeedback() gin.HandlerFunc { return rateLimitBy(FeedbackLimiter) }
+
+func RateLimitFeedbackReply() gin.HandlerFunc { return rateLimitBy(FeedbackReplyLimiter) }
 
 // RateLimitIP wraps a route with a per-IP token bucket.
 func RateLimitIP() gin.HandlerFunc {

@@ -14,6 +14,7 @@ type Config struct {
 	Port             string
 	DBDriver         string // "mysql" (default) or "sqlite" (local dev only)
 	DBDSN            string
+	FeedbackImageDir string
 	NewAPIBaseURL    string
 	NewAPIPublicURL  string // new-api 对外访问地址,可选,仅用于绑定引导页跳转
 	NewAPIAdminPAT   string
@@ -39,6 +40,7 @@ func Get() (*Config, error) {
 		Port:             strEnv("PORT", "8080"),
 		DBDriver:         strEnv("DB_DRIVER", "mysql"),
 		DBDSN:            os.Getenv("DB_DSN"),
+		FeedbackImageDir: strEnv("FEEDBACK_IMAGE_DIR", "data/feedback-images"),
 		NewAPIBaseURL:    strings.TrimRight(os.Getenv("NEWAPI_BASE_URL"), "/"),
 		NewAPIPublicURL:  strings.TrimRight(os.Getenv("NEWAPI_PUBLIC_URL"), "/"),
 		NewAPIAdminPAT:   os.Getenv("NEWAPI_ADMIN_PAT"),

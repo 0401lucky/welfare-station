@@ -26,6 +26,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      FEEDBACK_IMAGE_DIR: /data/feedback-images
+    volumes:
+      - feedback-images:/data/feedback-images
     ports:
       - "8080:8080"
     # If new-api runs in its own compose network, attach to it directly:
@@ -35,6 +39,9 @@ services:
     # and add:
     # extra_hosts:
     #   - "host.docker.internal:host-gateway"
+
+volumes:
+  feedback-images:
 
 # networks:
 #   new-api-network:

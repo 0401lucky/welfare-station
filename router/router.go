@@ -4,6 +4,7 @@ import (
 	"welfare/config"
 	"welfare/controller"
 	"welfare/middleware"
+	"welfare/service"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -11,8 +12,13 @@ import (
 
 // Register wires up every route group. Milestones add their routes here as
 // they land (M3 OAuth/login, M5 checkin, M6 activities, M7 admin).
-func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
+func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB, stores ...*service.FeedbackImageStore) {
 	app := controller.NewApp(db, cfg)
+	// Production injects its opened persistent store; old tests stay isolated and
+	// never create native upload directories implicitly.
+	if len(stores) > 0 {
+		app.FeedbackImages = stores[0]
+	}
 
 	// 存活探针挂在根路径:不进 /api 组,不经限流,也不会被 SPA 兜底吞掉。
 	r.GET("/healthz", app.Health)
@@ -53,6 +59,22 @@ func Register(r *gin.Engine, cfg *config.Config, db *gorm.DB) {
 	feedbackAdmin.POST("/:id/replies", app.AdminReplyFeedback)
 	feedbackAdmin.PUT("/:id/status", app.AdminUpdateFeedbackStatus)
 	feedbackAdmin.PUT("/:id/moderation", app.AdminModerateFeedback)
+
+	feedbackV2 := api.Group("/v2", controller.FeedbackNoStore)
+	feedbackV2.GET("/feedback", app.ListFeedbackV2)
+	feedbackV2.GET("/feedback/images/:image_id/:variant", app.Auth.OptionalUser(), app.FeedbackImageV2)
+	feedbackV2.HEAD("/feedback/images/:image_id/:variant", app.Auth.OptionalUser(), app.FeedbackImageV2)
+	feedbackV2.GET("/feedback/:id", app.Auth.OptionalUser(), app.FeedbackDetailV2)
+	feedbackV2.GET("/user/feedback", app.Auth.RequireUser(), app.MyFeedbackV2)
+	feedbackV2.POST("/feedback", app.Auth.RequireUser(), middleware.RateLimitFeedback(), app.CreateFeedbackV2)
+	feedbackV2.POST("/feedback/:id/replies", app.Auth.RequireUser(), middleware.RateLimitFeedbackReply(), app.ReplyFeedbackV2)
+	feedbackV2Admin := feedbackV2.Group("/admin/feedback", app.Auth.RequireAdmin())
+	feedbackV2Admin.GET("", app.AdminListFeedbackV2)
+	feedbackV2Admin.GET("/:id", app.AdminFeedbackDetailV2)
+	feedbackV2Admin.POST("/:id/replies", middleware.RateLimitFeedbackReply(), app.AdminReplyFeedbackV2)
+	feedbackV2Admin.PUT("/:id/status", app.AdminUpdateFeedbackStatusV2)
+	feedbackV2Admin.PUT("/:id/moderation", app.AdminModerateFeedbackV2)
+	feedbackV2Admin.PUT("/:id/replies/:reply_id/moderation", app.AdminModerateFeedbackReplyV2)
 
 	// ---- M7: user grants (my records) ----
 	user.GET("/user/grants", app.GetMyGrants)

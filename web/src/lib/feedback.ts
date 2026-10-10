@@ -21,9 +21,9 @@ export const feedbackStatusLabel = (status: FeedbackStatus) => feedbackStatuses.
 export const hasFeedbackStatus = (category: FeedbackCategory) => category === 'issue' || category === 'suggestion'
 export const feedbackLength = (text: string) => Array.from(text).length
 
-export function feedbackTextError(text: string): string | null {
+export function feedbackTextError(text: string, imageCount = 0): string | null {
   const points = Array.from(text.trim())
-  if (!points.length) return '请先写下内容。'
+  if (!points.length && !imageCount) return '请写下内容或添加至少一张图片。'
   if (points.some(point => { const code = point.codePointAt(0)!; return code >= 0xd800 && code <= 0xdfff })) return '内容含有无法识别的字符，请修改后重试。'
   return points.length > FEEDBACK_TEXT_LIMIT ? `内容最多 ${FEEDBACK_TEXT_LIMIT} 字，请适当缩短。` : null
 }
@@ -42,6 +42,36 @@ export interface FeedbackFilters {
   status: FeedbackStatus | ''
   page: number
   pageSize: number
+}
+
+export type FeedbackView = 'public' | 'mine' | 'participated'
+export const readFeedbackView = (params: URLSearchParams): FeedbackView => params.get('view') === 'mine' ? 'mine' : params.get('view') === 'participated' ? 'participated' : 'public'
+
+export interface FeedbackThreadLocation { page: number; anchor: number | null; replyTo: number | null }
+export function readFeedbackThread(params: URLSearchParams): FeedbackThreadLocation {
+  return { page: feedbackPage(params.get('reply_page')), anchor: feedbackMessageId(params.get('reply')), replyTo: feedbackMessageId(params.get('reply_to')) }
+}
+
+export function writeFeedbackThread(current: URLSearchParams, thread: FeedbackThreadLocation): URLSearchParams {
+  const next = new URLSearchParams(current)
+  for (const name of ['reply', 'reply_page', 'reply_to']) next.delete(name)
+  if (feedbackMessageId(next.get('message'))) {
+    if (thread.page > 1 && thread.page <= 1_000_000) next.set('reply_page', String(thread.page))
+    if (thread.anchor) next.set('reply', String(thread.anchor))
+    if (thread.replyTo) next.set('reply_to', String(thread.replyTo))
+  }
+  return next
+}
+
+export function feedbackDetailParams(thread: FeedbackThreadLocation): URLSearchParams {
+  const next = new URLSearchParams({ page: String(thread.page), page_size: String(FEEDBACK_PAGE_SIZE) })
+  const anchor = thread.anchor ?? thread.replyTo
+  if (anchor) next.set('anchor_reply_id', String(anchor))
+  return next
+}
+
+export function feedbackSubmissionId(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
 export function feedbackPage(value: string | null) {
@@ -81,17 +111,17 @@ export function writeFeedbackParams(current: URLSearchParams, filters: FeedbackF
   if (filters.pageSize !== FEEDBACK_PAGE_SIZE) next.set('page_size', String(filters.pageSize))
   const message = feedbackMessageId(current.get('message'))
   if (message) next.set('message', String(message))
-  return withPageParam(next, filters.page)
+  return writeFeedbackThread(withPageParam(next, filters.page), readFeedbackThread(current))
 }
 
 /** Every protected scope includes the confirmed viewer and never borrows rows. */
 export const feedbackKeys = {
-  all: ['feedback'] as const,
-  public: (request: string) => ['feedback', 'public', request] as const,
-  mine: (viewer: string, request: string) => ['feedback', 'mine', viewer, request] as const,
-  detail: (viewer: string, id: number, page: number) => ['feedback', 'detail', viewer, id, page] as const,
-  adminList: (viewer: string, request: string) => ['feedback', 'admin', viewer, 'list', request] as const,
-  adminDetail: (viewer: string, id: number, page: number) => ['feedback', 'admin', viewer, 'detail', id, page] as const,
+  all: ['feedback', 'v2'] as const,
+  public: (viewer: string, request: string) => ['feedback', 'v2', 'public', viewer, request] as const,
+  personal: (view: 'mine' | 'participated', viewer: string, request: string) => ['feedback', 'v2', view, viewer, request] as const,
+  detail: (viewer: string, id: number, request: string, replyTo: number | null) => ['feedback', 'v2', 'detail', viewer, id, request, replyTo] as const,
+  adminList: (viewer: string, request: string) => ['feedback', 'v2', 'admin', viewer, 'list', request] as const,
+  adminDetail: (viewer: string, id: number, request: string, replyTo: number | null) => ['feedback', 'v2', 'admin', viewer, 'detail', id, request, replyTo] as const,
 }
 
 /** A refresh failure is a read error, never a reversal of a successful write. */

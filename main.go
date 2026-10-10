@@ -39,6 +39,11 @@ func main() {
 	if err := model.Migrate(db); err != nil {
 		log.Fatalf("migrate error: %v", err)
 	}
+	feedbackImages, err := service.OpenFeedbackImageStore(cfg.FeedbackImageDir)
+	if err != nil {
+		log.Fatalf("feedback image store: %v", err)
+	}
+	defer feedbackImages.Close()
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -47,7 +52,7 @@ func main() {
 	httpsMode := strings.HasPrefix(cfg.WelfareBaseURL, "https://")
 	r.Use(gin.Logger(), gin.Recovery(), middleware.SecurityHeaders(httpsMode))
 
-	router.Register(r, cfg, db)
+	router.Register(r, cfg, db, feedbackImages)
 
 	// Serve the frontend SPA from web/dist when it has been built. If the build
 	// output is absent (fresh checkout, or dev mode), only the /api routes are
@@ -60,6 +65,8 @@ func main() {
 	defer stop()
 
 	var workers sync.WaitGroup
+	workers.Add(1)
+	go func() { defer workers.Done(); feedbackImages.RunCleanup(ctx, db) }()
 
 	// 限流桶是进程内 map,定期清掉闲置 key,否则长跑后慢泄漏。
 	workers.Add(1)
@@ -81,7 +88,7 @@ func main() {
 	}
 
 	addr := ":" + cfg.Port
-	srv := &http.Server{Addr: addr, Handler: r}
+	srv := &http.Server{Addr: addr, Handler: r, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 2 * time.Minute}
 	go func() {
 		log.Printf("welfare station listening on %s", addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

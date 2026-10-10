@@ -13,6 +13,7 @@ web/dist/*
 *.db
 *.db-shm
 *.db-wal
+data/feedback-images/
 
 # Env / secrets
 .env

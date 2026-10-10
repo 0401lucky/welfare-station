@@ -8,7 +8,7 @@ import "github.com/gin-gonic/gin"
 // 同源 iframe 加载,frame-ancestors 必须允许 'self'。
 // 已知会上报的一处:web/public/assets/games/watermelon/index.html 里有一段内联
 // <script>,切强制模式前需外置成文件或补 hash。观察一段时间没有其它误报后再切换。
-const cspReportOnly = "default-src 'self'; img-src 'self' data: https:; " +
+const cspReportOnly = "default-src 'self'; img-src 'self' data: blob: https:; " +
 	"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self'; " +
 	"connect-src 'self'; font-src 'self' data: https://fonts.gstatic.com; frame-ancestors 'self'"
 

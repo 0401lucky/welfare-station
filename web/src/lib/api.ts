@@ -18,14 +18,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(path, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    credentials: 'include',
-    signal,
-    body: body ? JSON.stringify(body) : undefined,
-  })
+async function responseData<T>(res: Response): Promise<T> {
   let json: ApiEnvelope<T>
   try {
     json = await res.json()
@@ -36,6 +29,38 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     throw new ApiError(res.status, json.message || '请求失败', json.data)
   }
   return json.data
+}
+
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  return responseData<T>(await fetch(path, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    credentials: 'include',
+    signal,
+    body: body ? JSON.stringify(body) : undefined,
+  }))
+}
+
+/** Feedback files are sent with the write, never uploaded as reusable assets. */
+export async function postFeedbackSubmission<T>(path: string, payload: FeedbackCreatePayload | FeedbackReplyPayload, files: readonly File[], signal?: AbortSignal): Promise<T> {
+  if (!files.length) return request<T>('POST', path, payload, signal)
+  const body = new FormData()
+  body.append('payload', JSON.stringify(payload))
+  files.forEach(file => body.append('images', file))
+  return responseData<T>(await fetch(path, { method: 'POST', credentials: 'include', body, signal }))
+}
+
+/** No browser/shared HTTP cache or arbitrary remote URL for protected media. */
+export async function readFeedbackImage(id: string, variant: 'original' | 'thumbnail', signal: AbortSignal): Promise<Blob> {
+  if (!/^[0-9a-f]{32}$/.test(id)) throw new ApiError(404, '图片暂不可查看', null)
+  const res = await fetch(`/api/v2/feedback/images/${id}/${variant}`, { credentials: 'include', cache: 'no-store', signal, redirect: 'error' })
+  if (!res.ok) {
+    await responseData(res)
+    throw new ApiError(res.status, '图片暂不可查看', null)
+  }
+  const mime = res.headers.get('Content-Type')?.split(';')[0].trim()
+  if (!mime || !['image/jpeg', 'image/png', 'image/webp'].includes(mime)) throw new ApiError(502, '图片响应异常，请重试', null)
+  return res.blob()
 }
 
 export const api = {
@@ -359,6 +384,31 @@ export interface AdminFeedbackItem extends FeedbackItem { user_id: number; linux
 export interface FeedbackReply { id: number; author: FeedbackAuthor; content: string; created_at: string }
 export interface FeedbackDetail { message: FeedbackItem; replies: Page<FeedbackReply> }
 export interface AdminFeedbackDetail { message: AdminFeedbackItem; replies: Page<FeedbackReply> }
+
+/** V1 types above remain the legacy owner-only compatibility view. */
+export interface FeedbackImage {
+  id: string
+  mime_type: 'image/jpeg' | 'image/png' | 'image/webp'
+  width: number
+  height: number
+  byte_size: number
+  original_url: string
+  thumbnail_url: string
+}
+export interface FeedbackV2Item extends FeedbackItem { images: FeedbackImage[] }
+export interface AdminFeedbackV2Item extends FeedbackV2Item { user_id: number; linux_do_name: string }
+export interface FeedbackReplyTarget { id: number; author: FeedbackAuthor }
+export interface FeedbackV2Reply extends FeedbackReply {
+  author_role: 'owner' | 'member'
+  images: FeedbackImage[]
+  is_hidden: boolean
+  reply_to: FeedbackReplyTarget | null
+  reply_to_unavailable: boolean
+}
+export interface FeedbackV2Detail { message: FeedbackV2Item; replies: Page<FeedbackV2Reply>; can_reply: boolean }
+export interface AdminFeedbackV2Detail extends FeedbackV2Detail { message: AdminFeedbackV2Item }
+export interface FeedbackCreatePayload { client_submission_id: string; category: FeedbackCategory; content: string; is_private: boolean }
+export interface FeedbackReplyPayload { client_submission_id: string; content: string; reply_to_id?: number }
 
 export interface Dashboard {
   /** 配置时区下的今天,以及该时区本身 —— 所有 today_* 字段都以它为日界。 */

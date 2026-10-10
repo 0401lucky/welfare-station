@@ -21,7 +21,7 @@ afterEach(() => vi.unstubAllGlobals())
 describe('留言墙和个人留言', () => {
   it('游客可直接按 URL 浏览、筛选和前后翻页，个人视图才提示登录', async () => {
     const { client, calls } = setupFeedbackApi(url => {
-      if (url.pathname === '/api/feedback') {
+      if (url.pathname === '/api/v2/feedback') {
         const page = Number(url.searchParams.get('page'))
         return response(pageOf([feedback({ content: `结果 ${url.searchParams.get('category')} 第 ${page} 页` })], page, 45))
       }
@@ -38,14 +38,14 @@ describe('留言墙和个人留言', () => {
     expect(screen.getByLabelText('当前地址')).toHaveTextContent('status=pending')
     fireEvent.click(screen.getByRole('button', { name: '我的留言' }))
     await screen.findByText('用 LinuxDO 登录，留下一句话')
-    expect(calls.some(call => call.url.pathname === '/api/user/feedback')).toBe(false)
-    expect(calls.filter(call => call.url.pathname === '/api/feedback').every(call => call.init.signal instanceof AbortSignal)).toBe(true)
+    expect(calls.some(call => call.url.pathname === '/api/v2/user/feedback')).toBe(false)
+    expect(calls.filter(call => call.url.pathname === '/api/v2/feedback').every(call => call.init.signal instanceof AbortSignal)).toBe(true)
     client.clear()
   })
 
   it('区分首次读取失败与空留言，重新加载可恢复', async () => {
     let failed = true
-    const { client } = setupFeedbackApi(url => url.pathname === '/api/feedback' ? response(failed ? null : pageOf([]), failed ? 500 : 200) : undefined)
+    const { client } = setupFeedbackApi(url => url.pathname === '/api/v2/feedback' ? response(failed ? null : pageOf([]), failed ? 500 : 200) : undefined)
     renderWithProviders(<FeedbackPage />, { client })
     await screen.findByText('暂时无法读取留言')
     expect(screen.queryByText('留一片声音，让小站热闹起来')).not.toBeInTheDocument()
@@ -61,10 +61,10 @@ describe('留言墙和个人留言', () => {
     let sends = 0
     const published = feedback({ id: 22, category: 'praise', status: null, is_private: true, content })
     const { client, calls } = setupFeedbackApi((url, init) => {
-      if (url.pathname === '/api/feedback' && init.method === 'POST') return ++sends === 1 ? first.promise : response(published)
-      if (url.pathname === '/api/feedback') return response(pageOf([]))
+      if (url.pathname === '/api/v2/feedback' && init.method === 'POST') return ++sends === 1 ? first.promise : response(published)
+      if (url.pathname === '/api/v2/feedback') return response(pageOf([]))
       // Confirmed writes stay successful even if the following reads fail.
-      if (url.pathname === '/api/user/feedback' || url.pathname === '/api/feedback/22') return response(null, 500)
+      if (url.pathname === '/api/v2/user/feedback' || url.pathname === '/api/v2/feedback/22') return response(null, 500)
     })
     renderWithProviders(<FeedbackPage />, { client })
     const open = await screen.findByRole('button', { name: '写留言' })
@@ -89,9 +89,9 @@ describe('留言墙和个人留言', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '发送留言' }))
     await screen.findByRole('dialog', { name: '留言详情' })
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('留言已发送，仅你和站主可见'))
-    expect(calls.filter(call => call.init.method === 'POST').map(call => JSON.parse(String(call.init.body)))).toEqual([
-      { category: 'praise', content, is_private: true }, { category: 'praise', content, is_private: true },
-    ])
+    const posts = calls.filter(call => call.init.method === 'POST').map(call => JSON.parse(String(call.init.body)))
+    expect(posts[0]).toEqual({ client_submission_id: expect.stringMatching(/^[a-f0-9]{32}$/), category: 'praise', content, is_private: true })
+    expect(posts[1]).toEqual(posts[0])
     await within(screen.getByRole('dialog', { name: '留言详情' })).findByText('暂时无法读取留言')
     expect(screen.queryByText('留言尚未发送成功')).not.toBeInTheDocument()
     client.clear()
@@ -102,7 +102,7 @@ describe('留言墙和个人留言', () => {
     const second = deferred<Response>()
     let secondSignal: AbortSignal | null | undefined
     const { client } = setupFeedbackApi((url, init) => {
-      if (url.pathname === '/api/user/feedback') {
+      if (url.pathname === '/api/v2/user/feedback') {
         if (currentUser === 2) { secondSignal = init.signal; return second.promise }
         return response(pageOf([feedback({ content: `账号 ${currentUser} 的私密留言`, is_private: true })]))
       }
@@ -127,8 +127,8 @@ describe('留言墙和个人留言', () => {
     let denied = false
     const privateMessage = feedback({ is_private: true, content: '不能残留的私密内容' })
     const { client } = setupFeedbackApi(url => {
-      if (url.pathname === '/api/feedback') return response(pageOf([]))
-      if (url.pathname === '/api/feedback/1') return denied ? response(null, code) : response(detailOf(privateMessage, [replyOf('同样私密的站主回复')]))
+      if (url.pathname === '/api/v2/feedback') return response(pageOf([]))
+      if (url.pathname === '/api/v2/feedback/1') return denied ? response(null, code) : response(detailOf(privateMessage, [replyOf('同样私密的站主回复')]))
     })
     renderWithProviders(<FeedbackPage />, { client, route: '/feedback?message=1' })
     await screen.findByText(privateMessage.content)
@@ -147,8 +147,8 @@ describe('留言墙和个人留言', () => {
     const privateMessage = feedback({ is_private: true, content: '站主可见的留言' })
     const { client } = setupFeedbackApi(url => {
       if (url.pathname === '/api/user/self' && rechecking) return accountRefresh.promise
-      if (url.pathname === '/api/feedback') return response(pageOf([]))
-      if (url.pathname === '/api/feedback/1') return regularUser ? response(null, 404) : response(detailOf(privateMessage))
+      if (url.pathname === '/api/v2/feedback') return response(pageOf([]))
+      if (url.pathname === '/api/v2/feedback/1') return regularUser ? response(null, 404) : response(detailOf(privateMessage))
     }, selfInfo(1, true))
     renderWithProviders(<FeedbackPage />, { client, route: '/feedback?message=1' })
     await screen.findByText(privateMessage.content)
@@ -166,14 +166,14 @@ describe('留言墙和个人留言', () => {
   })
 
   it('取消弹窗可回到原触发按钮；管理员公开墙仍走公开接口', async () => {
-    const { client, calls } = setupFeedbackApi(url => url.pathname === '/api/feedback' ? response(pageOf([])) : undefined, selfInfo(1, true))
+    const { client, calls } = setupFeedbackApi(url => url.pathname === '/api/v2/feedback' ? response(pageOf([])) : undefined, selfInfo(1, true))
     renderWithProviders(<FeedbackPage />, { client })
     const open = await screen.findByRole('button', { name: '写留言' })
     open.focus(); fireEvent.click(open)
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => expect(open).toHaveFocus())
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(calls.filter(call => call.url.pathname.includes('feedback')).every(call => call.url.pathname === '/api/feedback')).toBe(true)
+    expect(calls.filter(call => call.url.pathname.includes('feedback')).every(call => call.url.pathname === '/api/v2/feedback')).toBe(true)
     client.clear()
   })
 
@@ -182,8 +182,8 @@ describe('留言墙和个人留言', () => {
     let recheck = false
     const message = feedback({ content: '可以公开阅读的留言', reply_count: 21 })
     const { client, calls } = setupFeedbackApi(url => {
-      if (url.pathname === '/api/feedback') return response(pageOf([message]))
-      if (url.pathname === '/api/feedback/1') {
+      if (url.pathname === '/api/v2/feedback') return response(pageOf([message]))
+      if (url.pathname === '/api/v2/feedback/1') {
         if (recheck) return reopened.promise
         const page = Number(url.searchParams.get('page'))
         return response(detailOf(message, [replyOf(`第 ${page} 页站主回复`)], page, 21))
@@ -194,8 +194,9 @@ describe('留言墙和个人留言', () => {
     const next = within(screen.getByRole('navigation', { name: '回复分页' })).getByRole('button', { name: '下一页' })
     next.focus(); fireEvent.click(next)
     await screen.findByText('第 2 页站主回复')
+    await waitFor(() => expect(screen.getByRole('heading', { name: '留言讨论 21' })).toHaveFocus())
     expect(screen.queryByText('第 1 页站主回复')).not.toBeInTheDocument()
-    expect(calls.some(call => call.url.pathname === '/api/feedback/1' && call.url.searchParams.get('page') === '2')).toBe(true)
+    expect(calls.some(call => call.url.pathname === '/api/v2/feedback/1' && call.url.searchParams.get('page') === '2')).toBe(true)
     fireEvent.keyDown(document, { key: 'Escape' })
     recheck = true
     fireEvent.click(screen.getByRole('button', { name: '查看留言 #1' }))

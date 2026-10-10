@@ -7,7 +7,8 @@ COPY web/ .
 RUN npm run build
 
 # ---- Stage 2: build backend (embeds web/dist) ----
-FROM golang:1.25-alpine AS build
+FROM golang:1.25.5-alpine AS build
+ENV GOTOOLCHAIN=local
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -19,7 +20,12 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/welfare .
 # ---- Stage 3: minimal runtime image ----
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates tzdata && \
-    addgroup -S welfare && adduser -S welfare -G welfare
+    addgroup -S welfare && adduser -S welfare -G welfare && \
+    mkdir -p /data/feedback-images/staging /data/feedback-images/objects && \
+    printf 'welfare-feedback-images-v1\n' > /data/feedback-images/.feedback-image-store && \
+    chown -R welfare:welfare /data/feedback-images && \
+    chmod -R u=rwX,go= /data/feedback-images
+ENV FEEDBACK_IMAGE_DIR=/data/feedback-images
 WORKDIR /app
 COPY --from=build /out/welfare /app/welfare
 # The runtime image is designed to connect to an external MySQL instance.

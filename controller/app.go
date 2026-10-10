@@ -12,12 +12,13 @@ import (
 
 // App bundles the dependencies every controller needs.
 type App struct {
-	DB       *gorm.DB
-	Config   *config.Config
-	Sessions *service.SessionManager
-	NewAPI   *service.NewAPIClient
-	OAuth    *service.LinuxDOClient
-	Auth     *middleware.AuthMiddleware
+	DB             *gorm.DB
+	Config         *config.Config
+	Sessions       *service.SessionManager
+	NewAPI         *service.NewAPIClient
+	OAuth          *service.LinuxDOClient
+	Auth           *middleware.AuthMiddleware
+	FeedbackImages *service.FeedbackImageStore
 }
 
 // NewApp constructs the controller bundle wired in router.Register.

@@ -17,6 +17,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      FEEDBACK_IMAGE_DIR: /data/feedback-images
+    volumes:
+      - feedback-images:/data/feedback-images
     ports:
       # 只绑本机回环,由 cloudflared 隧道对外提供 HTTPS。
       # 宿主机 8080 已被其他服务(caddy)占用,这里用 8090;隧道
@@ -34,6 +38,9 @@ services:
     # (newapi9-new-api / newapi9-mysql)访问它们。
     networks:
       - newapi_default
+
+volumes:
+  feedback-images:
 
 networks:
   newapi_default:

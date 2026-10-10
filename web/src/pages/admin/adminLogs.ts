@@ -22,6 +22,8 @@ export const auditActions = [
   { value: 'update_feedback_status', label: '更新反馈状态' },
   { value: 'hide_feedback', label: '隐藏留言' },
   { value: 'restore_feedback', label: '恢复留言' },
+  { value: 'hide_feedback_reply', label: '隐藏回复' },
+  { value: 'restore_feedback_reply', label: '恢复回复' },
 ] as const
 
 export function auditActionLabel(action: string): string {
@@ -76,7 +78,7 @@ export function formatAuditDetail(detail: string): string {
   }
 }
 
-const targetNames: Record<string, string> = { grant: '流水', user: '用户', activity: '活动', setting: '配置', feedback: '留言' }
+const targetNames: Record<string, string> = { grant: '流水', user: '用户', activity: '活动', setting: '配置', feedback: '留言', feedback_reply: '回复' }
 
 export function auditTargetLabel(log: Pick<AdminLog, 'target_type' | 'target_id'>): string {
   const name = targetNames[log.target_type] ?? log.target_type

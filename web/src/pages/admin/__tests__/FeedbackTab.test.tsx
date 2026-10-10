@@ -5,7 +5,7 @@ import AdminRoot from '../AdminWorkspace'
 import { renderWithProviders } from '@/test/renderWithProviders'
 import { installMemoryStorage } from '@/test/storage'
 import { adminFeedback, deferred, pageOf, replyOf, response, selfInfo, setupFeedbackApi } from '@/components/feedback/__tests__/fixtures'
-import type { FeedbackReply } from '@/lib/api'
+import type { FeedbackV2Reply } from '@/lib/api'
 
 vi.mock('@/components/Toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
@@ -26,7 +26,7 @@ function mount(client: ReturnType<typeof setupFeedbackApi>['client'], route = '/
 describe('后台留言反馈管理', () => {
   it('组合搜索与类别、状态、公开范围、隐藏筛选，并保留 URL 后退和分页语义', async () => {
     const { client, calls } = setupFeedbackApi(url => {
-      if (url.pathname === '/api/admin/feedback') {
+      if (url.pathname === '/api/v2/admin/feedback') {
         const page = Number(url.searchParams.get('page'))
         return response(pageOf([adminFeedback({ content: `${url.searchParams.get('moderation')} 第 ${page} 页` })], page, 65))
       }
@@ -37,7 +37,7 @@ describe('后台留言反馈管理', () => {
     expect(screen.getByText('hidden 第 3 页')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '查询' }))
     await screen.findByText('visible 第 1 页')
-    const request = calls.filter(call => call.url.pathname === '/api/admin/feedback').slice(-1)[0]
+    const request = calls.filter(call => call.url.pathname === '/api/v2/admin/feedback').slice(-1)[0]
     expect(Object.fromEntries(request.url.searchParams)).toEqual({ search: '%_!', category: 'issue', status: 'pending', visibility: 'private', moderation: 'visible', page: '1', page_size: '20' })
     fireEvent.click(within(screen.getByRole('navigation', { name: '留言分页' })).getByRole('button', { name: '下一页' }))
     await screen.findByText('visible 第 2 页')
@@ -47,8 +47,26 @@ describe('后台留言反馈管理', () => {
     client.clear()
   })
 
+  it('回复翻页完成后将键盘焦点移到讨论标题', async () => {
+    const message = adminFeedback({ reply_count: 21 })
+    const { client } = setupFeedbackApi(url => {
+      if (url.pathname === '/api/v2/admin/feedback') return response(pageOf([message]))
+      if (url.pathname === '/api/v2/admin/feedback/1') {
+        const page = Number(url.searchParams.get('page'))
+        return response({ message, replies: pageOf([replyOf(`管理回复第 ${page} 页`)], page, 21), can_reply: true })
+      }
+    }, selfInfo(1, true))
+    mount(client, '/admin?tab=feedback&message=1')
+    await screen.findByText('管理回复第 1 页')
+    const next = within(screen.getByRole('navigation', { name: '回复分页' })).getByRole('button', { name: '下一页' })
+    next.focus(); fireEvent.click(next)
+    await screen.findByText('管理回复第 2 页')
+    await waitFor(() => expect(screen.getByRole('heading', { name: '留言讨论 21' })).toHaveFocus())
+    client.clear()
+  })
+
   it('尚未查询的筛选草稿也能清空，当前 URL 无筛选时不会留下旧输入', async () => {
-    const { client, calls } = setupFeedbackApi(url => url.pathname === '/api/admin/feedback' ? response(pageOf([])) : undefined, selfInfo(1, true))
+    const { client, calls } = setupFeedbackApi(url => url.pathname === '/api/v2/admin/feedback' ? response(pageOf([])) : undefined, selfInfo(1, true))
     mount(client)
     await screen.findByText('没有符合条件的留言')
     fireEvent.change(screen.getByLabelText('搜索留言或作者'), { target: { value: '尚未查询的内容' } })
@@ -58,19 +76,19 @@ describe('后台留言反馈管理', () => {
     expect(screen.getByLabelText('搜索留言或作者')).toHaveValue('')
     expect(screen.getByLabelText('留言类别')).toHaveValue('')
     expect(screen.getByLabelText('公开范围')).toHaveValue('')
-    expect(calls.filter(call => call.url.pathname === '/api/admin/feedback').every(call => !call.url.searchParams.has('search') && !call.url.searchParams.has('category') && !call.url.searchParams.has('visibility'))).toBe(true)
+    expect(calls.filter(call => call.url.pathname === '/api/v2/admin/feedback').every(call => !call.url.searchParams.has('search') && !call.url.searchParams.has('category') && !call.url.searchParams.has('visibility'))).toBe(true)
     client.clear()
   })
 
   it('回复失败保留草稿，成功清空自己的提交，快速双击只发送一次且不自动更改状态', async () => {
     let message = adminFeedback({ is_private: true })
-    const replies: FeedbackReply[] = []
+    const replies: FeedbackV2Reply[] = []
     const second = deferred<Response>()
     let sends = 0
     const { client, calls } = setupFeedbackApi((url, init) => {
-      if (url.pathname === '/api/admin/feedback') return response(pageOf([message]))
-      if (url.pathname === '/api/admin/feedback/1') return response({ message, replies: pageOf(replies) })
-      if (url.pathname === '/api/admin/feedback/1/replies') {
+      if (url.pathname === '/api/v2/admin/feedback') return response(pageOf([message]))
+      if (url.pathname === '/api/v2/admin/feedback/1') return response({ message, replies: pageOf(replies), can_reply: true })
+      if (url.pathname === '/api/v2/admin/feedback/1/replies') {
         sends++
         if (sends === 1) return response(null, 400, '回复暂时未保存，请重试')
         return second.promise.then(saved => { replies.push(replyOf(JSON.parse(String(init.body)).content)); message = { ...message, reply_count: 1 }; return saved })
@@ -104,9 +122,9 @@ describe('后台留言反馈管理', () => {
   it('普通留言没有状态操作；隐藏需确认，取消不写入，恢复显式提交 false 并保持私密', async () => {
     let message = adminFeedback({ category: 'message', status: null, is_private: true })
     const { client, calls } = setupFeedbackApi((url, init) => {
-      if (url.pathname === '/api/admin/feedback') return response(pageOf([message]))
-      if (url.pathname === '/api/admin/feedback/1') return response({ message, replies: pageOf([]) })
-      if (url.pathname === '/api/admin/feedback/1/moderation') {
+      if (url.pathname === '/api/v2/admin/feedback') return response(pageOf([message]))
+      if (url.pathname === '/api/v2/admin/feedback/1') return response({ message, replies: pageOf([]), can_reply: true })
+      if (url.pathname === '/api/v2/admin/feedback/1/moderation') {
         message = { ...message, is_hidden: JSON.parse(String(init.body)).is_hidden }
         return response(message)
       }
@@ -133,9 +151,9 @@ describe('后台留言反馈管理', () => {
   it('问题状态可以完成再重开，更新独立于回复', async () => {
     let message = adminFeedback()
     const { client, calls } = setupFeedbackApi((url, init) => {
-      if (url.pathname === '/api/admin/feedback') return response(pageOf([message]))
-      if (url.pathname === '/api/admin/feedback/1') return response({ message, replies: pageOf([]) })
-      if (url.pathname === '/api/admin/feedback/1/status') { message = { ...message, status: JSON.parse(String(init.body)).status }; return response(message) }
+      if (url.pathname === '/api/v2/admin/feedback') return response(pageOf([message]))
+      if (url.pathname === '/api/v2/admin/feedback/1') return response({ message, replies: pageOf([]), can_reply: true })
+      if (url.pathname === '/api/v2/admin/feedback/1/status') { message = { ...message, status: JSON.parse(String(init.body)).status }; return response(message) }
     }, selfInfo(1, true))
     mount(client, '/admin?tab=feedback&message=1')
     const dialog = await screen.findByRole('dialog', { name: '管理留言' })
@@ -155,9 +173,9 @@ describe('后台留言反馈管理', () => {
     const message = adminFeedback({ is_private: true, content: '失权后不可残留的正文' })
     const { client } = setupFeedbackApi((url, init) => {
       if (url.pathname === '/api/user/self' && denial) return response(null, 503, '账号核对暂不可用')
-      if (url.pathname === '/api/admin/feedback') return denial && target === 'list' ? response(null, 403) : response(pageOf([message]))
-      if (url.pathname === '/api/admin/feedback/1') return denial && target === 'detail' ? response(null, 401) : response({ message, replies: pageOf([]) })
-      if (url.pathname.startsWith('/api/admin/feedback/1/') && ['POST', 'PUT'].includes(init.method ?? '')) { denial = true; return response(null, 403) }
+      if (url.pathname === '/api/v2/admin/feedback') return denial && target === 'list' ? response(null, 403) : response(pageOf([message]))
+      if (url.pathname === '/api/v2/admin/feedback/1') return denial && target === 'detail' ? response(null, 401) : response({ message, replies: pageOf([]), can_reply: true })
+      if (url.pathname.startsWith('/api/v2/admin/feedback/1/') && ['POST', 'PUT'].includes(init.method ?? '')) { denial = true; return response(null, 403) }
     }, selfInfo(1, true))
     mount(client, target === 'list' ? '/admin?tab=feedback' : '/admin?tab=feedback&message=1')
     await screen.findAllByText(message.content)
@@ -183,9 +201,9 @@ describe('后台留言反馈管理', () => {
   it('切换详情目标不串草稿，先前目标的迟到写入不会改动当前编辑器', async () => {
     const firstReply = deferred<Response>()
     const { client, calls } = setupFeedbackApi((url, init) => {
-      if (url.pathname === '/api/admin/feedback') return response(pageOf([adminFeedback(), adminFeedback({ id: 2 })]))
-      if (url.pathname === '/api/admin/feedback/1' || url.pathname === '/api/admin/feedback/2') return response({ message: adminFeedback({ id: Number(url.pathname.split('/').pop()) }), replies: pageOf([]) })
-      if (url.pathname === '/api/admin/feedback/1/replies' && init.method === 'POST') return firstReply.promise
+      if (url.pathname === '/api/v2/admin/feedback') return response(pageOf([adminFeedback(), adminFeedback({ id: 2 })]))
+      if (url.pathname === '/api/v2/admin/feedback/1' || url.pathname === '/api/v2/admin/feedback/2') return response({ message: adminFeedback({ id: Number(url.pathname.split('/').pop()) }), replies: pageOf([]), can_reply: true })
+      if (url.pathname === '/api/v2/admin/feedback/1/replies' && init.method === 'POST') return firstReply.promise
     }, selfInfo(1, true))
     mount(client, '/admin?tab=feedback&message=1')
     const firstEditor = await screen.findByLabelText('添加站主回复')
@@ -199,7 +217,7 @@ describe('后台留言反馈管理', () => {
     await act(async () => { firstReply.resolve(response(replyOf('仅回复第一条'))) })
     await waitFor(() => expect(screen.getByLabelText('添加站主回复')).toHaveValue('第二条的独立草稿'))
     expect(screen.queryByText('站主回复已发送')).not.toBeInTheDocument()
-    expect(calls.filter(call => call.init.method === 'POST')[0].url.pathname).toBe('/api/admin/feedback/1/replies')
+    expect(calls.filter(call => call.init.method === 'POST')[0].url.pathname).toBe('/api/v2/admin/feedback/1/replies')
     client.clear()
   })
 
@@ -208,9 +226,9 @@ describe('后台留言反馈管理', () => {
     let revoked = false
     const { client, calls } = setupFeedbackApi((url, init) => {
       if (url.pathname === '/api/user/self' && revoked) return response(null, 503, '账号核对暂不可用')
-      if (url.pathname === '/api/admin/feedback') return response(pageOf([adminFeedback(), adminFeedback({ id: 2 })]))
-      if (url.pathname === '/api/admin/feedback/1' || url.pathname === '/api/admin/feedback/2') return response({ message: adminFeedback({ id: Number(url.pathname.split('/').pop()), content: '需要管理员权限的私密正文', is_private: true }), replies: pageOf([]) })
-      if (url.pathname === '/api/admin/feedback/1/replies' && init.method === 'POST') return firstReply.promise
+      if (url.pathname === '/api/v2/admin/feedback') return response(pageOf([adminFeedback(), adminFeedback({ id: 2 })]))
+      if (url.pathname === '/api/v2/admin/feedback/1' || url.pathname === '/api/v2/admin/feedback/2') return response({ message: adminFeedback({ id: Number(url.pathname.split('/').pop()), content: '需要管理员权限的私密正文', is_private: true }), replies: pageOf([]), can_reply: true })
+      if (url.pathname === '/api/v2/admin/feedback/1/replies' && init.method === 'POST') return firstReply.promise
     }, selfInfo(1, true))
     mount(client, '/admin?tab=feedback&message=1')
     const firstEditor = await screen.findByLabelText('添加站主回复')
@@ -231,9 +249,9 @@ describe('后台留言反馈管理', () => {
   it('上个管理员的迟到拒绝不会关闭已切换账号的工作区', async () => {
     const firstReply = deferred<Response>()
     const { client, calls } = setupFeedbackApi((url, init) => {
-      if (url.pathname === '/api/admin/feedback') return response(pageOf([adminFeedback()]))
-      if (url.pathname === '/api/admin/feedback/1') return response({ message: adminFeedback(), replies: pageOf([]) })
-      if (url.pathname === '/api/admin/feedback/1/replies' && init.method === 'POST') return firstReply.promise
+      if (url.pathname === '/api/v2/admin/feedback') return response(pageOf([adminFeedback()]))
+      if (url.pathname === '/api/v2/admin/feedback/1') return response({ message: adminFeedback(), replies: pageOf([]), can_reply: true })
+      if (url.pathname === '/api/v2/admin/feedback/1/replies' && init.method === 'POST') return firstReply.promise
     }, selfInfo(1, true))
     mount(client, '/admin?tab=feedback&message=1')
     const firstEditor = await screen.findByLabelText('添加站主回复')

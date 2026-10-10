@@ -223,5 +223,6 @@ func AllModels() []any {
 		&AdminLog{},
 		&Feedback{},
 		&FeedbackReply{},
+		&FeedbackImage{},
 	}
 }

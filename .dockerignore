@@ -11,3 +11,5 @@ output
 .playwright-mcp
 *.db
 .env
+data/feedback-images
+promo-video
