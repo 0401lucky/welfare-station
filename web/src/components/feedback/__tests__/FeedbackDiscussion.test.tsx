@@ -17,6 +17,7 @@ describe('成员参与的平铺讨论', () => {
     const owner = replyOf('较早的站主回复', 1)
     const member = replyOf('普通成员的回应', 21, { author: { name: '竹子', avatar_url: '' }, author_role: 'member', reply_to: { id: owner.id, author: owner.author } })
     const posted = replyOf('收到，补充一点', 22, { author: { name: '访客 1', avatar_url: '' }, author_role: 'member', reply_to: { id: 1, author: owner.author } })
+    const refreshedDetail = deferred<void>()
     let published = false
     const message = feedback({ reply_count: 21 })
     const { client, calls } = setupFeedbackApi((url, init) => {
@@ -25,7 +26,8 @@ describe('成员参与的平铺讨论', () => {
       if (url.pathname === '/api/v2/feedback/1') {
         const anchor = url.searchParams.get('anchor_reply_id')
         const page = anchor === '1' ? 1 : anchor === '22' ? 2 : Number(url.searchParams.get('page'))
-        return response(detailOf(message, page === 1 ? [owner] : published ? [member, posted] : [member], page, published ? 22 : 21))
+        const detail = detailOf(message, page === 1 ? [owner] : published ? [member, posted] : [member], page, published ? 22 : 21)
+        return published ? refreshedDetail.promise.then(() => response(detail)) : response(detail)
       }
     })
     renderWithProviders(<><FeedbackPage /><LocationProbe /></>, { client, route: '/feedback?message=1&reply_page=2' })
@@ -45,12 +47,21 @@ describe('成员参与的平铺讨论', () => {
     expect(within(dialog).getByText('回复 @站主')).toBeInTheDocument()
     fireEvent.change(editor, { target: { value: posted.content } })
     fireEvent.submit(editor.closest('form')!)
-    await within(dialog).findByText(posted.content)
+    await waitFor(() => expect(calls.some(call => call.url.pathname === '/api/v2/feedback/1' && call.url.searchParams.get('anchor_reply_id') === '22')).toBe(true))
+    await within(dialog).findByText('正在读取留言…')
+    expect(within(dialog).queryByRole('region', { name: '留言讨论' })).not.toBeInTheDocument()
     const post = calls.find(call => call.init.method === 'POST')!
     expect(post.url.pathname).toBe('/api/v2/feedback/1/replies')
     expect(feedbackPayload(post.init)).toEqual({ client_submission_id: expect.stringMatching(/^[0-9a-f]{32}$/), content: posted.content, reply_to_id: 1 })
-    expect(within(dialog).getByRole('navigation', { name: '回复分页' })).toHaveTextContent('第 2 / 2 页')
-    expect(screen.getByLabelText('当前地址')).toHaveTextContent('reply=22')
+    await act(async () => { refreshedDetail.resolve(undefined) })
+    // Draft text also appears in the textarea; only the refreshed discussion
+    // proves the reply and its server-selected page are ready together.
+    await waitFor(() => {
+      const discussion = within(dialog).getByRole('region', { name: '留言讨论' })
+      expect(within(discussion).getByText(posted.content)).toBeInTheDocument()
+      expect(within(discussion).getByRole('navigation', { name: '回复分页' })).toHaveTextContent('第 2 / 2 页')
+      expect(screen.getByLabelText('当前地址')).toHaveTextContent('reply=22')
+    })
     client.clear()
   })
 
